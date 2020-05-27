@@ -1,0 +1,11 @@
+name: carbonplan
+channels:
+  - conda-forge
+dependencies:
+  - pangeo-notebook
+  - matplotlib
+  - intake
+  - xarray
+  - zarr
+  - gcsfs
+  - matplotlib
