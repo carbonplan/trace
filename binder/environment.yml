@@ -6,6 +6,7 @@ dependencies:
   - matplotlib
   - intake
   - intake-xarray
+  - rasterio
   - xarray
   - zarr
   - gcsfs
