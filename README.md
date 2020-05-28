@@ -1,8 +1,8 @@
-# CarbonPlan Forest Emissions Tracking Project
+# forest emissions tacking
 
 [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/carbonplan/forest-emissions-tracking/master)
 
-This repository includes Jupyter notebooks and other utilities for CarbonPlan's Forest Emissions Tracking Project.
+This repository includes example Jupyter notebooks and other utilities for a collaborative project CarbonPlan is working on involving tracking emissions related to deforestation and other land use changes.
 
 This project is just getting going. Nothing here is final or complete.
 
