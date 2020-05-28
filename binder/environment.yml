@@ -5,6 +5,8 @@ dependencies:
   - pangeo-notebook
   - matplotlib
   - intake
+  - intake-xarray
+  - rasterio
   - xarray
   - zarr
   - gcsfs
