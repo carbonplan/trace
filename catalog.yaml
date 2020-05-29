@@ -51,7 +51,7 @@ sources:
   hansen_emissions_ha:
     description: Global 30m forest carbon emissions
     metadata:
-      url: 'http://data.globalforestwatch.org/datasets/e129158a68434ca49d96a40d0e3109b1_2'
+      url: 'http://data.globalforestwatch.org/datasets/tree-biomass-loss'
       tags:
         - biomass
     parameters:
@@ -75,7 +75,7 @@ sources:
   hansen_emissions_px:
     description: Global 30m forest carbon emissions
     metadata:
-      url: 'http://data.globalforestwatch.org/datasets/e129158a68434ca49d96a40d0e3109b1_2'
+      url: 'http://data.globalforestwatch.org/datasets/tree-biomass-loss'
       tags:
         - biomass
     parameters:
@@ -111,3 +111,23 @@ sources:
         token: anon
         access: read_only
         project: carbonplan
+
+  fia_by_state:
+    description: FIA biomass aggregated by state
+    metadata:
+      tags:
+        - forest
+        - biomass
+    driver: csv
+    args: # passed to the open() method
+      urlpath: '{{ CATALOG_DIR }}/data/FIA-biomass-by-state.csv'
+
+  fia_ca:
+    description: FIA biomass aggregated by state
+    metadata:
+      tags:
+        - forest
+        - biomass
+    driver: csv
+    args: # passed to the open() method
+      urlpath: '{{ CATALOG_DIR }}/data/FIA-CA.csv'
