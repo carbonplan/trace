@@ -1,6 +1,6 @@
 # forest emissions tacking
 
-[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/carbonplan/forest-emissions-tracking/master)
+[![Binder](https://mybinder.org/badge_logo.svg)](https://binder.pangeo.io/v2/gh/carbonplan/forest-emissions-tracking/master)
 
 This repository includes example Jupyter notebooks and other utilities for a collaborative project CarbonPlan is working on involving tracking emissions related to deforestation and other land use changes.
 
