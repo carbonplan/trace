@@ -9,7 +9,6 @@
 
 [![GitHub][github-badge]][github]
 ![Build Status][]
-![dependabot][]
 ![MIT License][]
 
 [github]: https://github.com/carbonplan/forest-emissions-tracking
