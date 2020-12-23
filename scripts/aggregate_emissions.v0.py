@@ -1,6 +1,10 @@
+import json
+
+import dask
 import fsspec
 import numcodecs
 import numpy as np
+import regionmask
 import tqdm
 import xarray as xr
 
@@ -10,11 +14,19 @@ SQM_PER_HA = 10000
 ORNL_SCALING = 0.1
 R = 6.371e6
 
+# @joe - will this damage it if i do this globally? maybe this shouldn't all be in the same script hmmm
+dask.config.set(**{"array.slicing.split_large_chunks": False})
+
+
 HANSEN_FILE_LIST = (
     "https://storage.googleapis.com/earthenginepartners-hansen/GFC-2018-v1.6/treecover2000.txt"
 )
 OUT_TILE_TEMPLATE = "gs://carbonplan-scratch/global-forest-emissions/{}_{}.zarr"
 OUT_RASTER_FILE = "gs://carbonplan-scratch/global-forest-emissions/global/3000m/raster.zarr"
+OUT_COUNTRY_ROLLUP_FILE = (
+    "gs://carbonplan-scratch/global-forest-emissions/global/country_rollups.json"
+)
+
 LATS_TO_RUN = [
     "80N",
     "70N",
@@ -111,14 +123,55 @@ def create_coarsened_global_raster():
     combined_ds.to_zarr(mapper, encoding=encoding, mode="w")
 
 
+def package_country_rollup_json(data):
+
+    """
+    packages your dictionary nicely for writing out to json
+    """
+
+    out = {}
+    for k, d in data.items():
+        timseries = []
+        for y, v in d.items():
+            timseries.append({"year": y, "emissions": v})
+        out[k] = timseries
+    return out
+
+
+def country_rollups(input_raster, out_file):
+    mapper = fsspec.get_mapper(input_raster)
+    ds = xr.open_zarr(mapper)
+
+    # access your country boundaries via the boundaries in regionmask. these political boundaries
+    countries = regionmask.defined_regions.natural_earth.countries_110
+    names = dict(zip(countries.numbers, countries.names))
+    mask = countries.mask(ds.emissions)
+
+    # aggregate each country's emissions, summing up the total emissions at every component gridcell
+    # and produce a country-wide estimate for the period of record
+    df = ds.emissions.groupby(mask).sum().to_pandas()
+    columns = {k: names[int(k)] for k in df.columns}
+    df = df.rename(columns=columns)
+
+    # convert to teragrams
+    data = (df / 1e9).to_dict()
+
+    # package it nicely
+    out = package_country_rollup_json(data)
+
+    with open(out_file, "w") as f:
+        json.dump(out, f, indent=2)
+
+
 def main():
     # first create the coarsened global raster - this will be at a coarsened resolution but will cover
     # the globe in regularly-spaced lat/lon grid
     create_coarsened_global_raster()
 
     # then create the country roll-ups which provide country-specific averages
-    # we want to do these calculations at the original 30m resolution so we'll use the root
-    # hansen tiled dataset
+    # we might want to do this at the 30 m resolution eventually, but for now it's fine
+    # to do at the 3 km resolution
+    country_rollups(input_raster=OUT_RASTER_FILE, out_file=OUT_COUNTRY_ROLLUP_FILE)
 
 
 if __name__ == "__main__":

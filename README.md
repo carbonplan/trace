@@ -25,7 +25,7 @@ This project is just getting going. Nothing here is final or complete.
 We are in the process of incorporating the scripts and notebooks which were used to implement version 0 of the dataset. Some tips for reproducing this effort:
 
 * the `scripts/aggregate_emissions.v0.py` script can be run to reproduce both the 3 km global emissions raster dataset and the country-average estimates. As a warning, depending on the size of the machine you're running on, you might encounter memory issues when dealing with the 30m datasets. For that reason, we opted to process the 30m tiles in serial. If you are struggling, you might want to check to ensure that your cluster isn't getting overloaded.
-
+* currently country estimates are based upon geopolitical boundaries as specified by Natural Earth (https://www.naturalearthdata.com/) as countries are defined in 2020 (meaning that geopolitical boundaries that have changed over the period of record will be tagged to a static country designation as defined in 2020).
 
 ## license
 
