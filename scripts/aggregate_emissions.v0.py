@@ -112,10 +112,13 @@ def create_coarsened_global_raster():
 
 
 def main():
-    # first create the coarsened global raster
+    # first create the coarsened global raster - this will be at a coarsened resolution but will cover
+    # the globe in regularly-spaced lat/lon grid
     create_coarsened_global_raster()
 
-    # then create the country roll-ups
+    # then create the country roll-ups which provide country-specific averages
+    # we want to do these calculations at the original 30m resolution so we'll use the root
+    # hansen tiled dataset
 
 
 if __name__ == "__main__":
