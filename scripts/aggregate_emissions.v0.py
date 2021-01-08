@@ -5,7 +5,6 @@ import fsspec
 import numcodecs
 import numpy as np
 import regionmask
-import tqdm
 import xarray as xr
 
 TC02_PER_TC = 3.67
@@ -15,17 +14,15 @@ ORNL_SCALING = 0.1
 R = 6.371e6
 
 # @joe - will this damage it if i do this globally? maybe this shouldn't all be in the same script hmmm
-dask.config.set(**{"array.slicing.split_large_chunks": False})
+# dask.config.set(**{"array.slicing.split_large_chunks": False})
 
 
 HANSEN_FILE_LIST = (
     "https://storage.googleapis.com/earthenginepartners-hansen/GFC-2018-v1.6/treecover2000.txt"
 )
-OUT_TILE_TEMPLATE = "gs://carbonplan-scratch/global-forest-emissions/{}_{}.zarr"
-OUT_RASTER_FILE = "gs://carbonplan-scratch/global-forest-emissions/global/3000m/raster.zarr"
-OUT_COUNTRY_ROLLUP_FILE = (
-    "gs://carbonplan-scratch/global-forest-emissions/global/country_rollups.json"
-)
+OUT_TILE_TEMPLATE = "gs://carbonplan-climatetrace/v0/tiles/{}_{}.zarr"
+OUT_RASTER_FILE = "gs://carbonplan-climatetrace/v0/3000m_raster.zarr"
+OUT_COUNTRY_ROLLUP_FILE = "gs://carbonplan-climatetrace/v0/country_rollups.json"
 
 LATS_TO_RUN = [
     "80N",
@@ -95,14 +92,14 @@ def create_coarsened_global_raster():
             lons.append(lon)
 
     list_all_coarsened = []
-    for lat, lon in tqdm(list(zip(lats, lons))):
+    for lat, lon in list(zip(lats, lons)):
         try:
             # We only have data over land so this will throw
             # an exception if the tile errors (likely for lack of data - could be improved to check
             # that it fails precisely because it is an ocean tile - aka we check that all of the land
             # cells run appropriately)
             mapper = fsspec.get_mapper(OUT_TILE_TEMPLATE.format(lat, lon))
-            da_global = xr.open_zarr(mapper)
+            da_global = xr.open_zarr(mapper, consolidated=True)
             # We only want to create the
             da_mask = da_global.isel(year=0, drop=True)
             da_area = compute_grid_area(da_mask)
@@ -110,7 +107,7 @@ def create_coarsened_global_raster():
                 (da_global * da_area)
                 .coarsen(lat=COARSENING_FACTOR, lon=COARSENING_FACTOR)
                 .sum()
-                .compute()
+                .compute(retries=4)
             )
         except ValueError:
             print("{} {} did not work (likely because it is ocean) booooo".format(lat, lon))
@@ -120,7 +117,9 @@ def create_coarsened_global_raster():
     mapper = fsspec.get_mapper(coarsened_url)
 
     combined_ds = xr.combine_by_coords(list_all_coarsened, compat="override", coords="minimal")
-    combined_ds.to_zarr(mapper, encoding=encoding, mode="w")
+    combined_ds = combined_ds.chunk({"lat": -1, "lon": -1, "year": 1})
+    task = combined_ds.to_zarr(mapper, encoding=encoding, mode="w", compute=False)
+    dask.compute(task, retries=4)
 
 
 def package_country_rollup_json(data):
@@ -166,12 +165,18 @@ def country_rollups(input_raster, out_file):
 def main():
     # first create the coarsened global raster - this will be at a coarsened resolution but will cover
     # the globe in regularly-spaced lat/lon grid
+    from dask.distributed import Client
+
+    client = Client()
+    print(client.dashboard_link)
+    # then you can append this ^^ to your jupyterhub link to access the dask dashboard
     create_coarsened_global_raster()
 
     # then create the country roll-ups which provide country-specific averages
     # we might want to do this at the 30 m resolution eventually, but for now it's fine
     # to do at the 3 km resolution
-    country_rollups(input_raster=OUT_RASTER_FILE, out_file=OUT_COUNTRY_ROLLUP_FILE)
+
+    # country_rollups(input_raster=OUT_RASTER_FILE, out_file=OUT_COUNTRY_ROLLUP_FILE)
 
 
 if __name__ == "__main__":

@@ -3,8 +3,9 @@ import fsspec
 import intake
 import numcodecs
 import numpy as np
+import rasterio
 import xarray as xr
-from dask_gateway import Gateway
+import zarr
 from tqdm import tqdm
 
 TC02_PER_TC = 3.67
@@ -112,6 +113,11 @@ def open_hansen_2018_tile(lat, lon, emissions=False):
 
     ds = xr.Dataset()
 
+    # data catalog
+    cat = intake.open_catalog(
+        "https://raw.githubusercontent.com/carbonplan/forest-emissions-tracking/master/catalog.yaml"
+    )
+
     # Min Hansen data
     variables = ["treecover2000", "gain", "lossyear", "datamask"]  # , "first", "last"]
     for v in variables:
@@ -144,7 +150,7 @@ def open_hansen_2018_tile(lat, lon, emissions=False):
     return ds
 
 
-@dask.delayed
+# @dask.delayed
 def process_one_tile(lat, lon):
 
     """
@@ -164,8 +170,9 @@ def process_one_tile(lat, lon):
         Url where a processed tile is located
     """
 
-    url = f"gs://carbonplan-scratch/global-forest-\
-            emissions/{lat}_{lon}.zarr"
+    url = f"gs://carbonplan-climatetrace/v0/tiles/{lat}_{lon}.zarr"
+
+    encoding = {"emissions": {"compressor": numcodecs.Blosc()}}
 
     mapper = fsspec.get_mapper(url)
 
@@ -173,71 +180,72 @@ def process_one_tile(lat, lon):
         ds = open_hansen_2018_tile(lat, lon)
         ds = calc_one_tile(ds)[["emissions"]]
         ds = ds.chunk({"lat": 4000, "lon": 4000, "year": 2})
-        ds.to_zarr(mapper, encoding=encoding, mode="w")
+        ds.to_zarr(mapper, encoding=encoding, mode="w", consolidated=True)
+        zarr.consolidate_metadata(mapper)
         return url
 
 
-# start the cluster where you'll run everything
-gateway = Gateway()
-options = gateway.cluster_options()
-options.worker_cores = 2
-options.worker_memory = 24
-cluster = gateway.new_cluster(cluster_options=options)
-cluster.adapt(minimum=1, maximum=300)
+def main():
+    # start the cluster where you'll run everything
+    #     gateway = Gateway()
+    #     options = gateway.cluster_options()
+    #     options.worker_cores = 2
+    #     options.worker_memory = 24
+    #     cluster = gateway.new_cluster(cluster_options=options)
+    #     cluster.adapt(minimum=1, maximum=300)
 
-client = cluster.get_client()
+    #     client = cluster.get_client()
 
-encoding = {"emissions": {"compressor": numcodecs.Blosc()}}
+    with fsspec.open(
+        "https://storage.googleapis.com/earthenginepartners-hansen/GFC-2018-v1.6/treecover2000.txt"
+    ) as f:
+        lines = f.read().decode().splitlines()
+    print("We are working with {} different files".format(len(lines)))
 
-# data catalog
-cat = intake.open_catalog(
-    "https://raw.githubusercontent.com'\
-            '/carbonplan/forest-emissions-tracking/master/catalog.yaml"
-)
+    # keys for all global tiles - this makes
+    # a big box across the globe and the processes below will just skip the cells
+    # that don't have valid data
+    lat_tags = [
+        "80N",
+        "70N",
+        "60N",
+        "50N",
+        "40N",
+        "30N",
+        "20N",
+        "10N",
+        "00N",
+        "10S",
+        "20S",
+        "30S",
+        "40S",
+        "50S",
+    ]
+    lon_tags = [f"{n:03}W" for n in np.arange(10, 190, 10)] + [
+        f"{n:03}E" for n in np.arange(0, 190, 10)  # 0
+    ]
+
+    # the arrays where you'll throw your active lat/lon permutations
+    lats = []
+    lons = []
+    for line in lines:
+        pieces = line.split("_")
+        lat = pieces[-2]
+        lon = pieces[-1].split(".")[0]
+
+        if (lat in lat_tags) and (lon in lon_tags):
+            lats.append(lat)
+            lons.append(lon)
+
+    # Compute emissions for every lat/lon that you've selected
+    tiles = []
+    for lat, lon in tqdm(list(zip(lats, lons))):
+        try:
+            print(lat, lon)
+            tiles.append(process_one_tile(lat, lon))
+        except (rasterio.errors.RasterioIOError, zarr.errors.PathNotFoundError):
+            print("no tile available at {} {}".format(lat, lon))
 
 
-with fsspec.open(
-    "https://storage.googleapis.com/earthenginepartners" "-hansen/GFC-2018-v1.6/treecover2000.txt"
-) as f:
-    lines = f.read().decode().splitlines()
-print("We are working with {} different files".format(len(lines)))
-
-# keys for all global tiles - this makes
-# a big box across the globe and the processes below will just skip the cells
-# that don't have valid data
-lat_tags = [
-    "80N",
-    "70N",
-    "60N",
-    "50N",
-    "40N",
-    "30N",
-    "20N",
-    "10N",
-    "00N",
-    "10S",
-    "20S",
-    "30S",
-    "40S",
-    "50S",
-]
-lon_tags = [f"{n:03}W" for n in np.arange(10, 190, 10)] + [
-    f"{n:03}E" for n in np.arange(0, 190, 10)
-]
-
-# the arrays where you'll throw your active lat/lon permutations
-lats = []
-lons = []
-for line in lines:
-    pieces = line.split("_")
-    lat = pieces[-2]
-    lon = pieces[-1].split(".")[0]
-
-    if (lat in lat_tags) and (lon in lon_tags):
-        lats.append(lat)
-        lons.append(lon)
-
-# Compute emissions for every lat/lon that you've selected
-tiles = []
-for lat, lon in tqdm(list(zip(lats, lons))):
-    tiles.append(client.persist(process_one_tile(lat, lon), retries=1))
+if __name__ == "__main__":
+    main()
