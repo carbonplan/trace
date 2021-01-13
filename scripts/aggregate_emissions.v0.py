@@ -90,9 +90,11 @@ def create_coarsened_global_raster():
         if (lat in LATS_TO_RUN) and (lon in LONS_TO_RUN):
             lats.append(lat)
             lons.append(lon)
-
+    all_to_do = len(lats)
+    done = 0
     list_all_coarsened = []
     for lat, lon in list(zip(lats, lons)):
+
         try:
             # We only have data over land so this will throw
             # an exception if the tile errors (likely for lack of data - could be improved to check
@@ -111,7 +113,8 @@ def create_coarsened_global_raster():
             )
         except ValueError:
             print("{} {} did not work (likely because it is ocean) booooo".format(lat, lon))
-
+        done += 1
+        print("completed {} of {} tiles".format(done, all_to_do))
     coarsened_url = OUT_RASTER_FILE
 
     mapper = fsspec.get_mapper(coarsened_url)
@@ -158,7 +161,7 @@ def country_rollups(input_raster, out_file):
     # package it nicely
     out = package_country_rollup_json(data)
 
-    with open(out_file, "w") as f:
+    with fsspec.open(out_file, "w") as f:
         json.dump(out, f, indent=2)
 
 
@@ -167,7 +170,7 @@ def main():
     # the globe in regularly-spaced lat/lon grid
     from dask.distributed import Client
 
-    client = Client()
+    client = Client(n_workers=8, threads_per_worker=1)
     print(client.dashboard_link)
     # then you can append this ^^ to your jupyterhub link to access the dask dashboard
     create_coarsened_global_raster()
@@ -176,7 +179,7 @@ def main():
     # we might want to do this at the 30 m resolution eventually, but for now it's fine
     # to do at the 3 km resolution
 
-    # country_rollups(input_raster=OUT_RASTER_FILE, out_file=OUT_COUNTRY_ROLLUP_FILE)
+    country_rollups(input_raster=OUT_RASTER_FILE, out_file=OUT_COUNTRY_ROLLUP_FILE)
 
 
 if __name__ == "__main__":

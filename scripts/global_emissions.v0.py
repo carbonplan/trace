@@ -181,7 +181,6 @@ def process_one_tile(lat, lon):
         ds = calc_one_tile(ds)[["emissions"]]
         ds = ds.chunk({"lat": 4000, "lon": 4000, "year": 2})
         ds.to_zarr(mapper, encoding=encoding, mode="w", consolidated=True)
-        zarr.consolidate_metadata(mapper)
         return url
 
 
@@ -195,7 +194,6 @@ def main():
     #     cluster.adapt(minimum=1, maximum=300)
 
     #     client = cluster.get_client()
-
     with fsspec.open(
         "https://storage.googleapis.com/earthenginepartners-hansen/GFC-2018-v1.6/treecover2000.txt"
     ) as f:
@@ -222,7 +220,7 @@ def main():
         "50S",
     ]
     lon_tags = [f"{n:03}W" for n in np.arange(10, 190, 10)] + [
-        f"{n:03}E" for n in np.arange(0, 190, 10)  # 0
+        f"{n:03}E" for n in np.arange(0, 190, 10)
     ]
 
     # the arrays where you'll throw your active lat/lon permutations
