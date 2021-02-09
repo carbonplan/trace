@@ -11,7 +11,7 @@ def _preprocess(da, lat=None, lon=None):
     return da
 
 
-def open_hansen_2018_tile(lat, lon):
+def open_hansen_2018_tile(lat, lon, emissions=False):
     ds = xr.Dataset()
 
     # Min Hansen data
@@ -30,17 +30,17 @@ def open_hansen_2018_tile(lat, lon):
     ds["agb"] = (
         cat.hansen_biomass(lat=lat, lon=lon).to_dask().pipe(_preprocess, lat=ds.lat, lon=ds.lon)
     )
-
-    # Hansen emissions
-    ds["emissions_ha"] = (
-        cat.hansen_emissions_ha(lat=lat, lon=lon)
-        .to_dask()
-        .pipe(_preprocess, lat=ds.lat, lon=ds.lon)
-    )
-    ds["emissions_px"] = (
-        cat.hansen_emissions_px(lat=lat, lon=lon)
-        .to_dask()
-        .pipe(_preprocess, lat=ds.lat, lon=ds.lon)
-    )
+    if emissions:
+        # Hansen emissions
+        ds["emissions_ha"] = (
+            cat.hansen_emissions_ha(lat=lat, lon=lon)
+            .to_dask()
+            .pipe(_preprocess, lat=ds.lat, lon=ds.lon)
+        )
+        ds["emissions_px"] = (
+            cat.hansen_emissions_px(lat=lat, lon=lon)
+            .to_dask()
+            .pipe(_preprocess, lat=ds.lat, lon=ds.lon)
+        )
 
     return ds
