@@ -3,9 +3,9 @@
   height='48'
 />
 
-# carbonplan / forest-emissions-tracking
+# carbonplan / trace
 
-**working repo for forest-emissions-tracking project**
+**working repo for carbonplan's climate trace project**
 
 [![GitHub][github-badge]][github]
 ![Build Status][]
@@ -16,7 +16,7 @@
 [build status]: https://flat.badgen.net/github/checks/carbonplan/forest-emissions-tracking
 [mit license]: https://flat.badgen.net/badge/license/MIT/blue
 
-[![Binder](https://mybinder.org/badge_logo.svg)](https://binder.pangeo.io/v2/gh/carbonplan/forest-emissions-tracking/master)
+[![Binder](https://mybinder.org/badge_logo.svg)](https://binder.pangeo.io/v2/gh/carbonplan/forest-emissions-tracking/main)
 
 This repository includes example Jupyter notebooks and other utilities for a collaborative project CarbonPlan is working on involving tracking emissions related to deforestation and other land use changes.
 
