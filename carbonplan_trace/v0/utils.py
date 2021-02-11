@@ -1,7 +1,6 @@
-import intake
 import xarray as xr
 
-cat = intake.open_catalog("catalog.yaml")
+from .data import cat
 
 
 def _preprocess(da, lat=None, lon=None):

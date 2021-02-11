@@ -1,0 +1,15 @@
+carbonplan
+dask[complete]
+fsspec
+google-cloud-storage
+intake
+intake-geopandas
+intake-xarray
+netcdf4
+h5py
+pandas
+pytest
+rasterio
+scikit-learn
+xarray
+zarr
