@@ -3,6 +3,8 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+from scipy import optimize
+
 
 def read_dimensions(file_handle):
     # put the dimension columns into a dataframe
@@ -16,6 +18,15 @@ def read_dimensions(file_handle):
     df.set_index(['record_index', 'shot_number'], inplace=True)
     
     return df
+
+def read_1d_variables_into_pandas(file_handle, mapping, replace_fill_values_with_nulls):
+    df = {}
+    for k, v in mapping.items():
+        temp = file_handle[v][:]
+        if replace_fill_values_with_nulls:
+            temp[(temp > 1e+100)] = np.nan
+        df[k] = temp
+    return pd.DataFrame(df)
 
 def read_1d_variables(file_handle, mapping, unique_index, replace_fill_values_with_nulls):
     # put the 1D variables into a xarray dataset 
@@ -75,11 +86,18 @@ def extract_GLAH01_data(filename, replace_fill_values_with_nulls=True):
     ds['tx_wf_sample_loc'] = xr.DataArray(tx_wf_sample_loc, dims=['tx_bin'], coords=[np.arange(tx_wf.shape[1])])
 
     # store a copy of the sample location for each unique shot 
-    ds['rec_wf_sample_loc'] = xr.DataArray(rec_wf_sample_loc[ds.rec_wf_location_ind - 1], dims=['unique_index', 'rec_bin'], coords=[df.unique_index.values, np.arange(rec_wf.shape[1])])
+    location_index = np.minimum(ds.rec_wf_location_ind - 1, rec_wf_sample_loc.shape[0] - 1)
+    ds['rec_wf_sample_loc'] = xr.DataArray(rec_wf_sample_loc[location_index], dims=['unique_index', 'rec_bin'], coords=[df.unique_index.values, np.arange(rec_wf.shape[1])])
     
     # expand the multi index 
     ds.coords['unique_index'] = df.index
     ds = ds.unstack('unique_index')
+    
+    num_records = len(ds.record_index.values)
+    ds = ds.where(ds.rec_wf_location_ind <= 5, drop=True)
+    
+    if len(ds.record_index.values) < num_records:
+        print(f'Processing file {filename}, {num_records-ds} records were dropped due to invalid rec_wf_location_ind')
     
     return ds
 
@@ -127,3 +145,7 @@ def extract_GLAH14_data(filename, replace_fill_values_with_nulls=True):
     ds = ds.unstack('unique_index')
 
     return ds
+
+
+def preprocess():
+    pass
