@@ -48,7 +48,7 @@ def get_ground_peak_distance(bins, wf, buffer=1):
             (wf.isel(rec_bin=i) > wf.isel(rec_bin=i-1)) & 
             (wf.isel(rec_bin=i) > wf.isel(rec_bin=i+1)) & 
             # and this is the first peak found
-            (distance == 0) 
+            (distance == 0)
         )
         
         distance = xr.where(mask, x=bins.isel(rec_bin=i), y=distance)
