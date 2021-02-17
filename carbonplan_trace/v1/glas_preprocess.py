@@ -29,6 +29,21 @@ def calculate_derived_variables(ds):
     return ds
 
 
+def get_mask(ds):
+    """
+    True in mask = records to use
+    """
+    # all non nulls in the GLAH14 dataset
+    mask = ~ds.lat.isnull()
+    mask.name = 'mask'
+
+    # Harris et al filtering condition 2
+    mask = mask & (ds.rec_wf.max(dim='rec_bin') > (ds.noise_mean * 2))
+
+    # TODO: add other filters
+    return mask
+
+
 def gaussian(x, amplitude, mean, stddev):
     return amplitude * np.exp(-1 * ((x - mean) ** 2) / (2 * (stddev ** 2)))
 
@@ -40,7 +55,7 @@ def find_gaussian_fit_sigma(wf, default=3):
     x = np.arange(len(wf))
     y = wf - wf.min()  # optimizezr can't deal with negative number
     try:
-        popt, _ = optimize.curve_fit(gaussian, x, y, p0=[0.5, 25, 1])
+        popt, _ = optimize.curve_fit(gaussian, x, y, p0=[0.5, 25, default])
         sigma = popt[2]
     except RuntimeError:
         print("Using default sigma")
@@ -53,6 +68,10 @@ def smooth_wf(rec_wf, tx_wf):
     """
     Find sigma from transmitted waveform, and apply gaussian filter smoothing on the recieved waveform with said sigma
     """
+    if np.any(np.isnan(rec_wf)):
+        #         print('skipping record')
+        return rec_wf
+
     sigma = find_gaussian_fit_sigma(tx_wf)
 
     return gaussian_filter1d(input=rec_wf, sigma=sigma)
@@ -71,11 +90,14 @@ def select_valid_area(bins, wf, signal_begin_distance, signal_end_distance):
     return wf
 
 
-def preprocess_wf(ds):
+def preprocess_wf(ds, mask):
     """
     Smooth and de-noise received waveform, input is an xarray dataset with rec_wf, tx_wf, and noise_mean as dataarrays.
     Output is a dataarray containing the processed received waveform
     """
+    print('applying mask')
+    ds = ds.where(mask)
+
     # apply gaussian filter to smooth
     processed_wf = xr.apply_ufunc(
         smooth_wf,
@@ -86,7 +108,7 @@ def preprocess_wf(ds):
         vectorize=True,
         dask="parallelized",
         dask_gufunc_kwargs={"allow_rechunk": 1},
-        output_dtypes=np.float64,
+        output_dtypes=float,
     )
 
     # denoise
@@ -108,6 +130,7 @@ def preprocess_wf(ds):
 
 def preprocess(ds):
     ds = calculate_derived_variables(ds)
-    ds["processed_wf"] = preprocess_wf(ds)
+    mask = get_mask(ds)
+    ds["processed_wf"] = preprocess_wf(ds, mask)
 
     return ds
