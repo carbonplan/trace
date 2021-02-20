@@ -1,4 +1,5 @@
 import fsspec
+from pyproj import Transformer
 
 
 def save_to_zarr(ds, url, list_of_variables=None):
@@ -17,3 +18,20 @@ def save_to_zarr(ds, url, list_of_variables=None):
             del ds[v].encoding['chunks']
 
     ds[list_of_variables].to_zarr(mapper, mode='w')
+
+
+def get_transformer(p1=4326, p2=32610):
+    """
+    default p1 p2 transforms from lat/lon to Landsat coordinates
+    """
+    return Transformer.from_crs(4326, 32610)
+
+
+def get_x_from_latlon(lat, lon, transformer):
+    x, y = transformer.transform(lat, lon)
+    return x
+
+
+def get_y_from_latlon(lat, lon, transformer):
+    x, y = transformer.transform(lat, lon)
+    return y
