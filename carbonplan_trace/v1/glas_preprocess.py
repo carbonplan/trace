@@ -1,7 +1,11 @@
+from datetime import datetime, timezone
+
 import numpy as np
 import xarray as xr
 from scipy import optimize
 from scipy.ndimage import gaussian_filter1d
+
+from carbonplan_trace.v1.utils import get_transformer, get_x_from_latlon, get_y_from_latlon
 
 SPEED_OF_LIGHT = 299792458  # m/s
 SECONDS_IN_NANOSECONDS = 10 ** -9
@@ -27,6 +31,40 @@ def calculate_derived_variables(ds):
     ds["centroid_distance"] = ds.centroid_offset + ds.ref_range + ds.ref_range_bias
 
     return ds
+
+
+def process_coordinates(lat, lon, time):
+    """
+    Process lat/lon to get xy from Landsat images, process time from "seconds since 2000/1/1" to unix/epoch timestamp
+    All inputs are xr dataarrays
+    """
+    x = xr.apply_ufunc(
+        get_x_from_latlon,
+        lat,
+        lon,
+        get_transformer(),
+        vectorize=True,
+        dask='parallelized',
+        dask_gufunc_kwargs={'allow_rechunk': 1},
+        output_dtypes=np.float64,
+    )
+
+    y = xr.apply_ufunc(
+        get_y_from_latlon,
+        lat,
+        lon,
+        get_transformer(),
+        vectorize=True,
+        dask='parallelized',
+        dask_gufunc_kwargs={'allow_rechunk': 1},
+        output_dtypes=np.float64,
+    )
+
+    # original time format is seconds elapsed since Jan 1 2000 12:00:00 UTC
+    d0 = datetime(2000, 1, 1, 12, 0, 0, tzinfo=timezone.utc).timestamp()
+    time_out = time + d0
+
+    return x, y, time_out
 
 
 def get_mask(ds):
