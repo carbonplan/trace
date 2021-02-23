@@ -16,7 +16,7 @@ def calculate_derived_variables(ds):
     Calculate derived variables in a xarray dataset containing glas data
     """
     # convert receiving waveform digital bins from 0-543 to corresponding distance from satellite
-    ds["rec_wf_sample_distance"] = (
+    ds["rec_wf_sample_dist"] = (
         (ds.rec_wf_sample_loc + ds.rec_wf_response_end_time - ds.tx_wf_peak_time)
         * SECONDS_IN_NANOSECONDS
         * SPEED_OF_LIGHT
@@ -26,9 +26,9 @@ def calculate_derived_variables(ds):
     ds["ref_range_bias"] = ds.rec_wf_sample_distance.max(dim="rec_bin") - ds.ref_range
 
     # convert offsets to distance from satellite
-    ds["sig_begin_distance"] = ds.sig_begin_offset + ds.ref_range + ds.ref_range_bias
-    ds["sig_end_distance"] = ds.sig_end_offset + ds.ref_range + ds.ref_range_bias
-    ds["centroid_distance"] = ds.centroid_offset + ds.ref_range + ds.ref_range_bias
+    ds["sig_begin_dist"] = ds.sig_begin_offset + ds.ref_range + ds.ref_range_bias
+    ds["sig_end_dist"] = ds.sig_end_offset + ds.ref_range + ds.ref_range_bias
+    ds["centroid_dist"] = ds.centroid_offset + ds.ref_range + ds.ref_range_bias
 
     return ds
 
@@ -115,12 +115,12 @@ def smooth_wf(rec_wf, tx_wf):
     return gaussian_filter1d(input=rec_wf, sigma=sigma)
 
 
-def select_valid_area(bins, wf, signal_begin_distance, signal_end_distance):
+def select_valid_area(bins, wf, signal_begin_dist, signal_end_dist):
     """
     vectorized
     """
     # get mask of valid area
-    valid = (bins > signal_begin_distance) & (bins < signal_end_distance)
+    valid = (bins > signal_begin_dist) & (bins < signal_end_dist)
 
     # set all invalid area to 0s and clip lower at 0
     wf = wf.where(valid, other=0).clip(min=0)
@@ -156,8 +156,8 @@ def preprocess_wf(ds, mask):
     processed_wf = select_valid_area(
         bins=ds.rec_wf_sample_distance,
         wf=processed_wf,
-        signal_begin_distance=ds.sig_begin_distance,
-        signal_end_distance=ds.sig_end_distance,
+        signal_begin_distance=ds.sig_begin_dist,
+        signal_end_distance=ds.sig_end_dist,
     )
 
     dims = ds.rec_wf.dims
