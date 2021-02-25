@@ -35,3 +35,9 @@ def get_x_from_latlon(lat, lon, transformer):
 def get_y_from_latlon(lat, lon, transformer):
     x, y = transformer.transform(lat, lon)
     return y
+
+
+def convert_long3_to_long1(long3):
+    # see https://confluence.ecmwf.int/pages/viewpage.action?pageId=149337515
+    long1 = (long3 + 180) % 360 - 180
+    return long1

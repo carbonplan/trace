@@ -3,6 +3,8 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+NAN_THRESHOLD = 1e30
+
 
 def read_dimensions(file_handle):
     # put the dimension columns into a dataframe
@@ -25,8 +27,12 @@ def read_1d_variables(file_handle, mapping, unique_index, replace_fill_values_wi
     ds = {}
     for k, v in mapping.items():
         temp = file_handle[v][:]
-        if replace_fill_values_with_nulls:
-            temp[(temp > 1e100)] = np.nan
+        if replace_fill_values_with_nulls and (temp > NAN_THRESHOLD).sum() > 0:
+            print(
+                f'Found {(temp > NAN_THRESHOLD).sum()} values greater than threshold of {NAN_THRESHOLD} in variable {k}, replacing with np.nan'
+            )
+            temp.dtype = float
+            temp[(temp > NAN_THRESHOLD)] = np.nan
         ds[k] = xr.DataArray(temp, dims=["unique_index"], coords={"unique_index": unique_index})
 
     return xr.Dataset(ds)
@@ -137,6 +143,8 @@ def extract_GLAH14_data(filename, replace_fill_values_with_nulls=True):
         'num_gaussian_peaks': 'Data_40HZ/Waveform/i_numPk',
         # other waveform metric
         'skew': 'Data_40HZ/Waveform/d_skew1',
+        # The initial number of peaks of the received echo; determined from the smoothed waveform, using alternate parameters
+        'n_peaks': 'Data_40HZ/Waveform/i_nPeaks1',
     }
 
     # put the dimension columns into a dataframe
@@ -159,8 +167,12 @@ def extract_GLAH14_data(filename, replace_fill_values_with_nulls=True):
 
     for k, v in gaussian_fit_params.items():
         temp = f[v][:]
-        if replace_fill_values_with_nulls:
-            temp[(temp > 1e100)] = np.nan
+        if replace_fill_values_with_nulls and (temp > NAN_THRESHOLD).sum() > 0:
+            print(
+                f'Found {(temp > NAN_THRESHOLD).sum()} values greater than threshold of {NAN_THRESHOLD} in variable {k}, replacing with np.nan'
+            )
+            temp.dtype = float
+            temp[(temp > NAN_THRESHOLD)] = np.nan
 
         ds[k] = xr.DataArray(
             temp,

@@ -1,8 +1,15 @@
+from datetime import datetime, timezone
+
 import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
 
-from carbonplan_trace.v1.glas_preprocess import select_valid_area
+
+def sig_beg_to_sig_end_ht(ds):
+    """
+    Waveform extent from signal beginning to end
+    """
+    return get_heights_from_distance(ds, top_metric='sig_begin_dist', bottom_metric='sig_end_dist')
 
 
 def sig_beg_to_ground_ht(ds):
@@ -70,12 +77,12 @@ def ratio_centroid_to_max_ht(ds):
     return centroid_ht / max_ht
 
 
-def adj_ground_to_sig_end_ht(ds):
+def ground_to_sig_end_ht(ds):
     """
     Distance, in meters, from the ground peak to the signal end. Ground peak defined as whichever of the two lowest peaks has greater amplitude.
     """
     return get_heights_from_distance(
-        ds, top_metric='adj_ground_peak_dist', bottom_metric='sig_end_dist'
+        ds, top_metric='ground_peak_dist', bottom_metric='sig_end_dist'
     )
 
 
@@ -86,13 +93,13 @@ def sig_beg_to_highest_energy_ht(ds):
     return get_heights_from_distance(ds, top_metric='sig_begin_dist', bottom_metric='wf_max_e_dist')
 
 
-def start_to_centroid_adj_ground_ht(ds):
+def start_to_centroid_ground_ht(ds):
     """
     Distance, in meters, from the start of the ground signal to the ground peak.
     Ground peak defined as whichever of the two lowest peaks has greater amplitude.
     """
     return get_heights_from_distance(
-        ds, top_metric='start_of_adj_ground_peak_dist', bottom_metric='adj_ground_peak_dist'
+        ds, top_metric='start_of_ground_peak_dist', bottom_metric='adj_ground_peak_dist'
     )
 
 
@@ -161,28 +168,92 @@ def pct_90_to_sig_end_ht(ds):
     return get_heights_from_distance(ds, top_metric='pct_90_dist', bottom_metric='sig_end_dist')
 
 
+def get_leading_edge_extent(ds):
+    """
+    the height difference between the elevation of the signal start and the first elevation at which the
+    waveform is half of the maximum signal above the background noise value.
+    see https://daac.ornl.gov/NACP/guides/NACP_Boreal_Biome_Biomass.html for more details
+    """
+    return get_heights_from_distance(
+        ds, top_metric='sig_begin_dist', bottom_metric='leading_edge_dist'
+    )
+
+
+def get_trailing_edge_extent(ds):
+    """
+    the height difference between the lowest elevation at which the signal strength of the waveform is half of
+    the maximum signal above the background noise value, and the elevation of the signal end
+    see https://daac.ornl.gov/NACP/guides/NACP_Boreal_Biome_Biomass.html for more details
+    """
+    return get_heights_from_distance(
+        ds, top_metric='trailing_edge_dist', bottom_metric='sig_end_dist'
+    )
+
+
+def get_sig_begin_dist(ds):
+    """
+    Obtained directly from GLAH14 data
+    """
+    # calculate the bias between reference range to the bottom of received wf
+    ref_range_bias = ds.rec_wf_sample_dist.max(dim="rec_bin") - ds.ref_range
+    return ds.sig_begin_offset + ds.ref_range + ref_range_bias
+
+
+def get_sig_end_dist(ds):
+    """
+    Obtained directly from GLAH14 data
+    """
+    # calculate the bias between reference range to the bottom of received wf
+    ref_range_bias = ds.rec_wf_sample_dist.max(dim="rec_bin") - ds.ref_range
+    return ds.sig_end_offset + ds.ref_range + ref_range_bias
+
+
+def get_centroid_dist(ds):
+    """
+    Obtained directly from GLAH14 data
+    """
+    # calculate the bias between reference range to the bottom of received wf
+    ref_range_bias = ds.rec_wf_sample_dist.max(dim="rec_bin") - ds.ref_range
+    return ds.centroid_offset + ds.ref_range + ref_range_bias
+
+
+def get_gaussian_fit_dist(ds):
+    """
+    Obtained directly from GLAH14 data
+    """
+    # calculate the bias between reference range to the bottom of received wf
+    ref_range_bias = ds.rec_wf_sample_dist.max(dim="rec_bin") - ds.ref_range
+    return ds.gaussian_mu + ds.ref_range + ref_range_bias
+
+
 def get_percentile_dist(ds, percentile):
     """
     bins and wf are expected to be data arrays with rec_bin, record_index, shot_number as dims
     percentiles is a list in hundredth format (e.g. to get 10th percentile input value 10)
     """
-    total = ds.processed_wf.sum(dim="rec_bin")
-    cumsum = ds.processed_wf.cumsum(dim="rec_bin")
+    total = ds['processed_wf'].sum(dim="rec_bin")
+    cumsum = ds['processed_wf'].cumsum(dim="rec_bin")
     target = total * percentile / 100.0
 
-    return ds.rec_wf_sample_distance.where(cumsum > target).max(dim="rec_bin")
+    return ds.rec_wf_sample_dist.where(cumsum > target).max(dim="rec_bin")
 
 
-def get_ground_peak_dist(ds, buffer=1):
+def get_ground_peak_dist(ds):
     """
-    bins and wf are expected to be data arrays with rec_bin, record_index, shot_number as dims
-    buffer is the minimum index where the ground peak can be located
+    the lowest of gaussian fit peaks from GLAH14
     """
-    # TODO: just use the GLAH14 definition?
+    # lowest elevation = largest distance
+    return ds.gaussian_fit_dist.max(dim="n_gaussian_peaks")
+
+
+def get_ground_peak_dist_Sun(ds, buffer=1):
+    """
+    Identify lowest peak in smoothed waveform, adopted after Sun et al 2008
+    """
     assert buffer >= 1
 
     # ensure that things are ordered the same way
-    bins = ds.rec_wf_sample_distance.transpose("rec_bin", "record_index", "shot_number")
+    bins = ds.rec_wf_sample_dist.transpose("rec_bin", "record_index", "shot_number")
     wf = ds.processed_wf.transpose("rec_bin", "record_index", "shot_number")
 
     # initialize an array of ground peak distance with the shape of record index x shot number
@@ -210,25 +281,25 @@ def get_ground_peak_dist(ds, buffer=1):
 
 
 def get_start_of_ground_peak_dist(ds):
-    pass
+    """
+    Start of ground peak defined after Lefsky et al 1999 "Surface Lidar Remote Sensing of Basal Area and Biomass in Deciduous Forests of Eastern Maryland, USA"
+    "the posterior half of the ground return is copied and flipped vertically to define the anterior
+    half of the ground return" Figure 2a
+    """
+    ground_peak_trailing_extent = get_heights_from_distance(
+        ds, top_metric='ground_peak_dist', bottom_metric='sig_end_dist'
+    )
 
-
-def get_end_of_ground_peak_dist(ds):
-    pass
+    return ds.ground_peak_dist - ground_peak_trailing_extent
 
 
 def get_adj_ground_peak_dist(ds):
-    # compare the amplitude of the last two peaks and mark the greater one
-    # get the corresponding distance of the gaussian fit
-    # return this distance
-    pass
-
-
-def get_start_of_adj_ground_peak_dist(ds):
-    # find the adjusted ground peak
-    # find the distance at which gaussian signal would be lower than noise based on amp, sigma, and loation
-    # get diff between the acutal peak and the signal start
-    pass
+    """
+    the centroid position of whichever of the two lowest fitted Gaussian peaks has greater amplitude, as defined by Rosette, North, and Suarez (2008)
+    """
+    # find the larger peak between the bottom two
+    loc = ds.gaussian_amp.isel(n_gaussian_peaks=slice(2)).fillna(0).argmax(dim="n_gaussian_peaks")
+    return ds.gaussian_fit_dist.isel(n_gaussian_peaks=loc)
 
 
 def get_quadratic_mean_dist(ds):
@@ -238,9 +309,9 @@ def get_quadratic_mean_dist(ds):
     Original citation from Lefsky et al 1999
     """
     wf = ds.processed_wf
-    bins = ds.rec_wf_sample_distance
+    bins = ds.rec_wf_sample_dist
 
-    return bins.square().weighted(wf).mean("rec_bin").sqrt()
+    return np.sqrt(np.square(bins).weighted(wf).mean("rec_bin"))
 
 
 def get_mean_dist(ds):
@@ -248,7 +319,7 @@ def get_mean_dist(ds):
     Mean height of the waveform from the signal beginning to signal end
     """
     wf = ds.processed_wf
-    bins = ds.rec_wf_sample_distance
+    bins = ds.rec_wf_sample_dist
 
     return bins.weighted(wf).mean("rec_bin")
 
@@ -298,9 +369,27 @@ def get_wf_max_e_dist(ds):
     distance at which max waveform energy occurs
     """
     wf = ds.processed_wf
-    bins = ds.rec_wf_sample_distance
+    bins = ds.rec_wf_sample_dist
 
-    return bins.isel(wf.argmax(dim=["rec_bin"]))
+    return bins.isel(rec_bin=wf.argmax(dim="rec_bin"))
+
+
+def get_leading_edge_dist(ds):
+    """
+    the first elevation at which the waveform is half of the maximum signal above the background noise value
+    highest elevation = smallest distance from satellite
+    """
+    energy_threshold = (ds.rec_wf.max(dim="rec_bin") - ds.noise_mean) / 2.0
+    return ds.rec_wf_sample_dist.where(ds.rec_wf >= energy_threshold).min(dim="rec_bin")
+
+
+def get_trailing_edge_dist(ds):
+    """
+    the lowest elevation at which the signal strength of the waveform is half of the maximum signal above the background noise value
+    lowest elevation = largest distance from satellite
+    """
+    energy_threshold = (ds.rec_wf.max(dim="rec_bin") - ds.noise_mean) / 2.0
+    return ds.rec_wf_sample_dist.where(ds.rec_wf >= energy_threshold).max(dim="rec_bin")
 
 
 def front_slope_to_surface_energy_ratio(ds):
@@ -309,12 +398,23 @@ def front_slope_to_surface_energy_ratio(ds):
     We then applied the following linear transformation in order to calculate fslope on the same scale as provided in data published by
     Margolis et al. (2015): f_slope  =0.5744 + 19.7762⋅fslope_WHRC
     """
-    # find canopy_peak dist = distance of highest (in terms of distance from ground) Gaussian peak
-    # find canopy_peak amp = amplitude of highest Gaussian peak - signal noise  --> may not work and need to find the first peak manually
-    # find sig beg dist
-    # find amplitude of the sig beg = 0
+    # get the highest peak (highest in elevation = smallest distance)
+    # the fillna is necessary since argmin raises an error otherwise
+    # the filled nans will become nans again since canopy_amp at those locations are also nans
+    canopy_dist = ds.gaussian_fit_dist.fillna(1e10).argmin(dim="n_gaussian_peaks")
+    canopy_amp = ds.gaussian_amp.isel(n_gaussian_peaks=canopy_dist)
+
+    # calculate amplitude at signal begin as noise mean + nsig * noise sd
+    # the value of nsig is coded based on the GLAS Algorithm Theoretical Basis Document retrieved at
+    # https://www.csr.utexas.edu/glas/pdf/WFAtbd_v5_02011Sept.pdf  (See Appendix 3, pg 99)
+    time_of_switch = datetime(2000, 1, 1, 12, 0, 0, tzinfo=timezone.utc).timestamp() + 289742400
+    # for any time before the time of switch, b_nsig = 3.5, 7.5 afterwards
+    b_nsig = xr.where(ds.time < time_of_switch, x=3.5, y=7.5)
+
+    sig_begin_amp = ds.noise_mean + b_nsig * ds.noise_sd
+
     # calculate slope as y2-y1 / x2-x1
-    fslope_WHRC = 0
+    fslope_WHRC = (canopy_amp - sig_begin_amp) / (canopy_dist - ds.sig_begin_dist)
     return 0.5744 + 19.7762 * fslope_WHRC
 
 
@@ -329,24 +429,29 @@ def wf_variance(ds):
     """
     Variance of the waveform
     """
-    wf = ds.processed_wf
-    bins = ds.rec_wf_sample_distance
+    weights = ds.processed_wf
+    value = ds.rec_wf_sample_dist
 
-    return bins.weighted(wf).var(dim="rec_bin")
+    mean = value.weighted(weights).mean(dim="rec_bin")
+    sum_of_weights = weights.sum(dim="rec_bin")
+
+    var = (np.square(value - mean) * weights).sum(dim="rec_bin") / sum_of_weights
+
+    return var
 
 
 def wf_skew(ds):
     """
-    Skew of the waveform
+    Skew of the waveform, directly from GLAH14 data
     """
     return ds.skew
 
 
-def number_of_gaussian_peaks(ds):
+def number_of_peaks(ds):
     """
-    Number of Gaussian curves found in waveform
+    Number of peaks found in smoothed waveform, directly from GLAH14 data
     """
-    return ds.num_gaussian_peaks
+    return ds.n_peaks
 
 
 def proportion_35_to_40m(ds):
@@ -354,22 +459,24 @@ def proportion_35_to_40m(ds):
     Proportion of the waveform energy from signal beginning to ground peak that is between 35
     and 40 meters in height. Ground peak assumed to be the last peak.
     """
-    ds = get_metric_value(ds, metric='ground_peak_dist')
+    from carbonplan_trace.v1.glas_preprocess import select_valid_area  # avoid circular import
+
+    ds = get_dist_metric_value(ds, metric='ground_peak_dist')
 
     # the processed wf is from sig beg to sig end, select sig beg to ground peak
     sig_beg_to_ground = select_valid_area(
-        bins=ds.rec_wf_sample_distance,
+        bins=ds.rec_wf_sample_dist,
         wf=ds.processed_wf,
-        signal_begin_distance=ds.sig_begin_dist,
-        signal_end_distance=ds.ground_peak_dist,
+        signal_begin_dist=ds.sig_begin_dist,
+        signal_end_dist=ds.ground_peak_dist,
     )
 
     # then select 35 to 40m
     ht_35_to_40m = select_valid_area(
-        bins=ds.rec_wf_sample_distance,
+        bins=ds.rec_wf_sample_dist,
         wf=ds.processed_wf,
-        signal_begin_distance=ds.ground_peak_dist - 40.0,
-        signal_end_distance=ds.ground_peak_dist - 35.0,
+        signal_begin_dist=ds.ground_peak_dist - 40.0,
+        signal_end_dist=ds.ground_peak_dist - 35.0,
     )
 
     # make sure dimensions matches up
@@ -385,14 +492,16 @@ def proportion_sig_beg_to_ground(ds):
     The total energy from signal beginning to the start of the ground peak,
     normalized by total energy of the waveform. Ground peak assumed to be the last peak.
     """
-    ds = get_metric_value(ds, metric='ground_peak_dist')
+    from carbonplan_trace.v1.glas_preprocess import select_valid_area  # avoid circular import
+
+    ds = get_dist_metric_value(ds, metric='start_of_ground_peak_dist')
 
     # the processed wf is from sig beg to sig end, select sig beg to ground peak
     sig_beg_to_ground = select_valid_area(
-        bins=ds.rec_wf_sample_distance,
+        bins=ds.rec_wf_sample_dist,
         wf=ds.processed_wf,
-        signal_begin_distance=ds.sig_begin_dist,
-        signal_end_distance=ds.ground_peak_dist,
+        signal_begin_dist=ds.sig_begin_dist,
+        signal_end_dist=ds.start_of_ground_peak_dist,
     )
 
     # make sure dimensions matches up
@@ -414,14 +523,16 @@ def pct_canopy_cover(ds, cutoff_height=1.0):
     number of returns (including those below the ground height cut-off) that were in the plot.
     cutoff_height is in meters, return values are in % (0-100)
     """
-    ds = get_metric_value(ds, metric='ground_peak_dist')
+    from carbonplan_trace.v1.glas_preprocess import select_valid_area  # avoid circular import
 
-    # the processed wf is from sig beg to sig end, select sig beg to ground peak
+    ds = get_dist_metric_value(ds, metric='ground_peak_dist')
+
+    # the processed wf is from sig beg to sig end, select sig beg to ground peak + cutoff height
     vegetation_returns = select_valid_area(
-        bins=ds.rec_wf_sample_distance,
+        bins=ds.rec_wf_sample_dist,
         wf=ds.processed_wf,
-        signal_begin_distance=ds.ground_peak_dist - cutoff_height,
-        signal_end_distance=ds.ground_peak_dist,
+        signal_begin_dist=ds.sig_begin_dist,
+        signal_end_dist=ds.ground_peak_dist - cutoff_height,
     )
 
     # make sure dimensions matches up
@@ -449,9 +560,9 @@ def terrain_relief_class_1(ds):
     elev_diff=elev_max - elev_min (meters). terrain_1=elev_diff≥0 m and elev_diff<7 m.
     """
     relief = get_heights_from_distance(
-        ds, top_metric='start_of_ground_peak_dist', bottom_metric='end_of_ground_peak_dist'
+        ds, top_metric='start_of_ground_peak_dist', bottom_metric='sig_end_dist'
     )
-    return xr.where((relief >= 0 & relief < 7), x=1, y=0)
+    return xr.where((relief >= 0) & (relief < 7), x=1, y=0)
 
 
 def terrain_relief_class_2(ds):
@@ -460,9 +571,9 @@ def terrain_relief_class_2(ds):
     elev_diff=elev_max - elev_min (meters). terrain_2=elev_diff≥7 m and elev_diff<15 m.
     """
     relief = get_heights_from_distance(
-        ds, top_metric='start_of_ground_peak_dist', bottom_metric='end_of_ground_peak_dist'
+        ds, top_metric='start_of_ground_peak_dist', bottom_metric='sig_end_dist'
     )
-    return xr.where((relief >= 7 & relief < 15), x=1, y=0)
+    return xr.where((relief >= 7) & (relief < 15), x=1, y=0)
 
 
 def terrain_relief_class_3(ds):
@@ -471,13 +582,13 @@ def terrain_relief_class_3(ds):
     elev_diff=elev_max - elev_min (meters). terrain_3=elev_diff≥15 m
     """
     relief = get_heights_from_distance(
-        ds, top_metric='start_of_ground_peak_dist', bottom_metric='end_of_ground_peak_dist'
+        ds, top_metric='start_of_ground_peak_dist', bottom_metric='sig_end_dist'
     )
     return xr.where(relief >= 15, x=1, y=0)
 
 
 def plot_shot(record):
-    bins = record.rec_wf_sample_distance
+    bins = record.rec_wf_sample_dist
     plt.figure(figsize=(6, 10))
     plt.scatter(record.rec_wf, bins, s=5, label="Raw")  # raw wf
 
@@ -542,8 +653,12 @@ def plot_shot(record):
 
 
 DISTANCE_METRICS_MAP = {
+    "sig_begin_dist": get_sig_begin_dist,
+    "sig_end_dist": get_sig_end_dist,
+    "centroid_dist": get_centroid_dist,
+    "gaussian_fit_dist": get_gaussian_fit_dist,
     "ground_peak_dist": get_ground_peak_dist,
-    "adj_ground_peak_dist": get_adj_ground_peak_dist,  # TODO: implement
+    "adj_ground_peak_dist": get_adj_ground_peak_dist,
     "quadratic_mean_dist": get_quadratic_mean_dist,
     "mean_dist": get_mean_dist,
     "pct_05_dist": get_05th_pct_dist,
@@ -557,13 +672,13 @@ DISTANCE_METRICS_MAP = {
     "pct_80_dist": get_80th_pct_dist,
     "pct_90_dist": get_90th_pct_dist,
     "wf_max_e_dist": get_wf_max_e_dist,
-    "start_of_adj_ground_peak_dist": get_start_of_adj_ground_peak_dist,  # TODO: implement
-    "start_of_ground_peak_dist": get_start_of_ground_peak_dist,  # TODO: implement
-    "end_of_ground_peak_dist": get_end_of_ground_peak_dist,  # TODO: implement
+    "start_of_ground_peak_dist": get_start_of_ground_peak_dist,
+    "leading_edge_dist": get_leading_edge_dist,
+    "trailing_edge_dist": get_trailing_edge_dist,
 }
 
 
-def get_metric_value(ds, metric):
+def get_dist_metric_value(ds, metric):
     if metric not in ds and metric in DISTANCE_METRICS_MAP:
         ds[metric] = DISTANCE_METRICS_MAP[metric](ds)
     elif metric not in ds:
@@ -577,7 +692,7 @@ def get_metric_value(ds, metric):
 def get_heights_from_distance(ds, top_metric, bottom_metric):
     # check if the metric is in input ds, recalculate if not
     for metric in [top_metric, bottom_metric]:
-        ds = get_metric_value(ds, metric)
+        ds = get_dist_metric_value(ds, metric)
 
     # multiply with -1 since distance is measured from satellite to object, thus top has a smaller value
     return -1 * (ds[top_metric] - ds[bottom_metric])
@@ -608,14 +723,14 @@ HEIGHT_METRICS_MAP = {
     "H10_Baccini": pct_10_to_sig_end_ht,
     "H25_Baccini": pct_25_to_sig_end_ht,
     "H60_Baccini": pct_60_to_sig_end_ht,
-    "f_slope": front_slope_to_surface_energy_ratio,  # TODO: implement
-    "trail_Nelson": adj_ground_to_sig_end_ht,
-    "lead_Nelson": start_to_centroid_adj_ground_ht,
+    "f_slope": front_slope_to_surface_energy_ratio,
+    "trail_Nelson": ground_to_sig_end_ht,
+    "lead_Nelson": start_to_centroid_ground_ht,
     "wf_max_e": highest_energy_value,
     "wf_variance": wf_variance,
     "wf_skew": wf_skew,
     "startpeak": sig_beg_to_highest_energy_ht,
-    "wf_n_gs": number_of_gaussian_peaks,
+    "wf_n_gs": number_of_peaks,
     "Height_35_to_40": proportion_35_to_40m,
     "CANOPY_DEP": sig_beg_to_start_of_ground_peak_ht,
     "CANOPY_ENE": proportion_sig_beg_to_ground,
