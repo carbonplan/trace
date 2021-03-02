@@ -112,6 +112,7 @@ def sig_beg_to_start_of_ground_peak_ht(ds):
     )
 
 
+# TODO: change the next set of functions to take in pct as a param and avoid repeating
 def pct_25_to_ground_ht(ds):
     return get_heights_from_distance(ds, top_metric='pct_25_dist', bottom_metric='ground_peak_dist')
 
@@ -228,7 +229,9 @@ def get_gaussian_fit_dist(ds):
 
 def get_percentile_dist(ds, percentile):
     """
-    bins and wf are expected to be data arrays with rec_bin, record_index, shot_number as dims
+    the distance at which x% of the total waveform energy from signal beginning to signal end has been reached
+    as an example, 25th percentile dist should be larger than 50th percentile dist, where larger dist = further
+    to the satellite = lower elevation on earth
     percentiles is a list in hundredth format (e.g. to get 10th percentile input value 10)
     """
     total = ds['processed_wf'].sum(dim="rec_bin")
@@ -248,16 +251,18 @@ def get_ground_peak_dist(ds):
 
 def get_ground_peak_dist_Sun(ds, buffer=1):
     """
-    Identify lowest peak in smoothed waveform, adopted after Sun et al 2008
+    Identify lowest peak in smoothed waveform, adopted after Sun et al 2008.
+    buffer indicates the lowest bin that can be identified as ground peak (buffer = 3 indicates that
+    the lowest 3 bins are excluded from ground peak identification)
     """
     assert buffer >= 1
 
     # ensure that things are ordered the same way
-    bins = ds.rec_wf_sample_dist.transpose("rec_bin", "record_index", "shot_number")
+    all_distances = ds.rec_wf_sample_dist.transpose("rec_bin", "record_index", "shot_number")
     wf = ds.processed_wf.transpose("rec_bin", "record_index", "shot_number")
 
     # initialize an array of ground peak distance with the shape of record index x shot number
-    distance = xr.DataArray(
+    ground_distance = xr.DataArray(
         0,
         dims=["record_index", "shot_number"],
         coords=[wf.coords["record_index"], wf.coords["shot_number"]],
@@ -268,16 +273,18 @@ def get_ground_peak_dist_Sun(ds, buffer=1):
             # where the current bin has waveform intensity larger then the previous bin and the next bin
             (wf.isel(rec_bin=i) > wf.isel(rec_bin=i - 1))
             & (wf.isel(rec_bin=i) > wf.isel(rec_bin=i + 1))
-            & (distance == 0)  # and this is the first peak found
+            & (ground_distance == 0)  # and this is the first peak found
         )
 
-        distance = xr.where(mask, x=bins.isel(rec_bin=i), y=distance)
+        # where mask = True, set the ground distance to be equal to distance of current bin i
+        # otherwise continue to use the data stored in ground distance
+        ground_distance = xr.where(mask, x=all_distances.isel(rec_bin=i), y=ground_distance)
 
-    # set the 0 in distance to the max distance in wf
-    mask = distance == 0
-    distance = xr.where(mask, bins.isel(rec_bin=0), distance)
+    # set the 0s (records where we didn't find a peak) in distance to the max distance (bin 0)
+    mask = ground_distance == 0
+    ground_distance = xr.where(mask, all_distances.isel(rec_bin=0), ground_distance)
 
-    return distance
+    return ground_distance
 
 
 def get_start_of_ground_peak_dist(ds):
@@ -298,6 +305,7 @@ def get_adj_ground_peak_dist(ds):
     the centroid position of whichever of the two lowest fitted Gaussian peaks has greater amplitude, as defined by Rosette, North, and Suarez (2008)
     """
     # find the larger peak between the bottom two
+    # We have a filter where we only process records with at least 2 peaks -- fillna is needed here because argmax doesn't deal with all nans
     loc = ds.gaussian_amp.isel(n_gaussian_peaks=slice(2)).fillna(0).argmax(dim="n_gaussian_peaks")
     return ds.gaussian_fit_dist.isel(n_gaussian_peaks=loc)
 
@@ -324,6 +332,7 @@ def get_mean_dist(ds):
     return bins.weighted(wf).mean("rec_bin")
 
 
+# TODO: change the next set of functions to take in pct as a param and avoid repeating
 def get_05th_pct_dist(ds):
     return get_percentile_dist(ds, 5)
 
