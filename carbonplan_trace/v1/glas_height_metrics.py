@@ -413,7 +413,8 @@ def front_slope_to_surface_energy_ratio(ds):
     canopy_dist = ds.gaussian_fit_dist.fillna(1e10).argmin(dim="n_gaussian_peaks")
     canopy_amp = ds.gaussian_amp.isel(n_gaussian_peaks=canopy_dist)
 
-    # calculate amplitude at signal begin as noise mean + nsig * noise sd
+    # calculate amplitude at signal begin as noise mean + nsig * noise sd since this is how signal
+    # begin is defined (ie. the highest elevation where signal crosses this threshold)
     # the value of nsig is coded based on the GLAS Algorithm Theoretical Basis Document retrieved at
     # https://www.csr.utexas.edu/glas/pdf/WFAtbd_v5_02011Sept.pdf  (See Appendix 3, pg 99)
     time_of_switch = datetime(2000, 1, 1, 12, 0, 0, tzinfo=timezone.utc).timestamp() + 289742400
@@ -516,11 +517,9 @@ def proportion_sig_beg_to_ground(ds):
     # make sure dimensions matches up
     dims = ds.processed_wf.dims
     sig_beg_to_ground = sig_beg_to_ground.transpose(dims[0], dims[1], dims[2])
-    # reverse denoise since the total energy is also including noise
-    sig_beg_to_ground = sig_beg_to_ground + ds.noise_mean
 
-    # total energy of the raw waveform
-    total = ds.rec_wf.sum(dim="rec_bin")
+    # total energy of the smoothed waveform
+    total = ds.processed_wf.sum(dim="rec_bin")
 
     return sig_beg_to_ground.sum(dim="rec_bin") / total
 
