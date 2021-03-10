@@ -298,7 +298,11 @@ def conus_mixedwood(ds):
 
 
 def zero_biomass(ds):
-    return 0
+    return xr.DataArray(
+        0,
+        dims=["unique_index"],
+        coords=[ds['lat'].coords["unique_index"]],
+    )
 
 
 def conus_conifer_tsui_2012(ds):
@@ -478,6 +482,8 @@ def subset_data_for_tile(data, tile_path):
 def find_ecoregions_values(data, ecoregions):
     # ecoregions map contains Ecoregions2017 and NLCD data, and will eventually include EOSD
     eco_records = ecoregions.sel(lat=data.lat, lon=data.lon, method="nearest")
+    assert (data.unique_index == eco_records.unique_index).mean() == 1
+    eco_records = eco_records.drop_vars(['lat', 'lon'])
     for v in eco_records:
         data[v] = eco_records[v]
 
@@ -496,12 +502,14 @@ def find_ecoregions_values(data, ecoregions):
     # read IGBP data and assign those values to each record as well
     igbp = get_igbp_data()
     igbp_records = igbp.sel(lat=data.lat, lon=data.lon, method="nearest")
-    data['igbp'] = igbp_records['igbp']
+    assert (data.unique_index == igbp_records.unique_index).mean() == 1
+    igbp_records = igbp_records.drop_vars(['lat', 'lon'])
+    data['igbp'] = igbp_records
 
     return data
 
 
-def assign_ecoregion_values(ds):
+def assign_ecoregion_values(ds, tile_path):
     """
     Given a dataset with lat, lon, assign the correct ecoregions values for each record
     """
@@ -510,33 +518,13 @@ def assign_ecoregion_values(ds):
         if v not in ds:
             raise KeyError(f'required variable {v} not found in input data')
 
-    # get list of ecoregions mask
-    tile_paths = get_list_of_mask_tiles()
+    # load mask
+    ecoregions_mask = get_ecoregions_mask(tile_path)
 
-    output = []
-    print(f'Original number of records is {ds.dims["unique_index"]}')
-    for path in tile_paths:
-        # subset data to lat/lon within this tile, we only need 4 columns from the input
-        sub = subset_data_for_tile(data=ds[['lat', 'lon', 'f_slope', 'senergy']], tile_path=path)
-        # if there's no data in this tile, skip
-        if sub.dims['unique_index'] == 0:
-            continue
+    # find the closest matching cell for each record
+    ds = find_ecoregions_values(ds, ecoregions_mask)
 
-        print(
-            f'    Assigning allometric equations to records within {path.split("/")[-1].split(".")[0]}'
-        )
-        ecoregions_mask = get_ecoregions_mask(path)
-
-        # find the closest matching cell for each record
-        sub = find_ecoregions_values(sub, ecoregions_mask)
-        output.append(sub)
-
-    output = xr.concat(output, dims=['unique_index'])
-    print(
-        f'After matching to tiles, remaining number of record is is {output.dims["unique_index"]}'
-    )
-
-    return output
+    return ds
 
 
 def assign_allometric_eq(ds):
@@ -561,16 +549,22 @@ def assign_allometric_eq(ds):
 
     # get land cover groupings
     wetland_mask = (
-        ds.nlcd == 90 | ds.eosd == 81 | (ds.nlcd.isnull() & ds.eosd.isnull() & ds.igbp == 11)
+        (ds.nlcd == 90) | (ds.eosd == 81) | (ds.nlcd.isnull() & ds.eosd.isnull() & (ds.igbp == 11))
     )
-    hardwood_mask = ds.nlcd == 41 | ds.eosd.isin([220, 221, 222, 223]) | (
-        ds.nlcd.isnull() & ds.eosd.isnull() & ds.igbp == 4
+    hardwood_mask = (
+        (ds.nlcd == 41)
+        | ds.eosd.isin([220, 221, 222, 223])
+        | (ds.nlcd.isnull() & ds.eosd.isnull() & (ds.igbp == 4))
     )
-    conifer_mask = ds.nlcd == 42 | ds.eosd.isin([210, 211, 212, 213]) | (
-        ds.nlcd.isnull() & ds.eosd.isnull() & ds.igbp.isin([1, 3])
+    conifer_mask = (
+        (ds.nlcd == 42)
+        | ds.eosd.isin([210, 211, 212, 213])
+        | (ds.nlcd.isnull() & ds.eosd.isnull() & ds.igbp.isin([1, 3]))
     )
-    mixedwood_mask = ds.nlcd == 43 | ds.eosd.isin([51, 230, 231, 232, 233]) | (
-        ds.nlcd.isnull() & ds.eosd.isnull() & ds.igbp.isin([5, 8, 9])
+    mixedwood_mask = (
+        (ds.nlcd == 43)
+        | ds.eosd.isin([51, 230, 231, 232, 233])
+        | (ds.nlcd.isnull() & ds.eosd.isnull() & ds.igbp.isin([5, 8, 9]))
     )
     # TODO: add burned
     zero_biomass_mask = (
@@ -582,10 +576,10 @@ def assign_allometric_eq(ds):
     # process boreal nearctic
     alaska_mask = output == 'alaska'
     output = xr.where(
-        alaska_mask & wetland_mask & ds.f_slope >= 2.552, x='ak_wetland_steep', y=output
+        alaska_mask & wetland_mask & (ds.f_slope >= 2.552), x='ak_wetland_steep', y=output
     )
     output = xr.where(
-        alaska_mask & wetland_mask & ds.f_slope < 2.552, x='ak_wetland_flat', y=output
+        alaska_mask & wetland_mask & (ds.f_slope < 2.552), x='ak_wetland_flat', y=output
     )
     output = xr.where(alaska_mask & hardwood_mask, x='ak_hardwood', y=output)
     output = xr.where(alaska_mask & conifer_mask, x='ak_conifer', y=output)
@@ -601,22 +595,24 @@ def assign_allometric_eq(ds):
 
     eastern_canada_mask = output == 'eastern_canada'
     output = xr.where(
-        eastern_canada_mask & wetland_mask & ds.f_slope >= 2.552,
+        eastern_canada_mask & wetland_mask & (ds.f_slope >= 2.552),
         x='e_canada_wetland_steep',
         y=output,
     )
     output = xr.where(
-        eastern_canada_mask & wetland_mask & ds.f_slope < 2.552, x='e_canada_wetland_flat', y=output
+        eastern_canada_mask & wetland_mask & (ds.f_slope < 2.552),
+        x='e_canada_wetland_flat',
+        y=output,
     )
     output = xr.where(eastern_canada_mask & hardwood_mask, x='e_canada_hardwood', y=output)
     output = xr.where(eastern_canada_mask & conifer_mask, x='e_canada_conifer', y=output)
     output = xr.where(
-        eastern_canada_mask & mixedwood_mask & ds.senergy >= 26.643,
+        eastern_canada_mask & mixedwood_mask & (ds.senergy >= 26.643),
         x='e_canada_mixedwood_high',
         y=output,
     )
     output = xr.where(
-        eastern_canada_mask & mixedwood_mask & ds.senergy < 26.643,
+        eastern_canada_mask & mixedwood_mask & (ds.senergy < 26.643),
         x='e_canada_mixedwood_low',
         y=output,
     )
@@ -643,18 +639,35 @@ def assign_allometric_eq(ds):
     return output
 
 
-def apply_allometric_equation(ds):
+def calculate_biomass(ds):
+    print(f'Starting with {ds.dims["unique_index"]} records')
+    out = []
+    for eq_name, group in ds.groupby('allometric_eq'):
+        if eq_name in ALLOMETRIC_EQUATIONS_MAP:
+            biomass = ALLOMETRIC_EQUATIONS_MAP[eq_name](group)
+            biomass.name = 'biomass'
+            out.append(biomass)
+
+    out = xr.concat(out, dim='unique_index')
+    print(f'Ending with {len(out)} records')
+
+    return out
+
+
+def apply_allometric_equation(ds, tile_path):
     """
     Given a dataset containing GLAS records, assign allometric equation based on appropriate info,
     then apply the allometric equation with respective height metrics to get biomass
     """
     # assign ecoregions
-    ds = assign_ecoregion_values(ds)
+    print('assigning ecoregions')
+    ds = assign_ecoregion_values(ds, tile_path)
 
     # assign allometric eq
+    print('assigning allometric eq')
     ds["allometric_eq"] = assign_allometric_eq(ds)
 
-    # # apply allometric equations
-    # ds["biomass"] = tsui_etal_2012(ds)
+    # apply allometric equations
+    ds["biomass"] = calculate_biomass(ds)
 
-    return 0
+    return ds
