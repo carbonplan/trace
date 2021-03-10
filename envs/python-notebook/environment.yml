@@ -72,3 +72,4 @@ dependencies:
       - carbonplan-forests
       - carbonplan-styles
       - rio-tiler-mvt
+      - git+https://github.com/carbonplan/trace.git@main
