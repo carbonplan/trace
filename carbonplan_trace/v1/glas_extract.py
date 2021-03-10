@@ -3,6 +3,8 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+NAN_THRESHOLD = 1e30
+
 
 def read_dimensions(file_handle):
     # put the dimension columns into a dataframe
@@ -25,8 +27,12 @@ def read_1d_variables(file_handle, mapping, unique_index, replace_fill_values_wi
     ds = {}
     for k, v in mapping.items():
         temp = file_handle[v][:]
-        if replace_fill_values_with_nulls:
-            temp[(temp > 1e100)] = np.nan
+        if replace_fill_values_with_nulls and (temp > NAN_THRESHOLD).sum() > 0:
+            print(
+                f'Found {(temp > NAN_THRESHOLD).sum()} values greater than threshold of {NAN_THRESHOLD} in variable {k}, replacing with np.nan'
+            )
+            temp.dtype = float
+            temp[(temp > NAN_THRESHOLD)] = np.nan
         ds[k] = xr.DataArray(temp, dims=["unique_index"], coords={"unique_index": unique_index})
 
     return xr.Dataset(ds)
@@ -124,6 +130,7 @@ def extract_GLAH14_data(filename, replace_fill_values_with_nulls=True):
         # the documentation mentioned two flags sat_corr_flg and i_satNdx to signal bad elevation, also and when correction is invalid the elevation is invalid
         "elevation": "Data_40HZ/Elevation_Surfaces/d_elev",  # meters
         "elevation_correction": "Data_40HZ/Elevation_Corrections/d_satElevCorr",  # should be added to elevation
+        "elevation_SRTM": "Data_40HZ/Geophysical/d_DEM_elv",  # Elevation at the footprint location from the SRTM30 (GTOPO30 + SRTM) Digital Elevation Model (DEM).
         # Range in distance calculated from the time between the centroid of the transmit pulse and the farthest gate from the spacecraft of the received pulse. See the rngcorrflg to determine
         # any corrections that have been applied. unit is meters and values in the 600k range
         "ref_range": "Data_40HZ/Elevation_Surfaces/d_refRng",  # meters
@@ -133,10 +140,11 @@ def extract_GLAH14_data(filename, replace_fill_values_with_nulls=True):
         # Range offset to be added to d_refRng to calculate the range using the algorithm deemed appropriate for land.
         "centroid_offset": "Data_40HZ/Elevation_Offsets/d_ldRngOff",  # meters
         # data for the 6 fitted gaussian peaks
-        #         'num_gaussian_peaks': 'Data_40HZ/Waveform/i_numPk',
-        #         'gaussian_mu': 'Data_40HZ/Elevation_Offsets/d_gpCntRngOff',  # meters
-        #         'gaussian_amp': 'Data_40HZ/Waveform/d_Gamp',  # volts
-        #         'gaussian_sigma': 'Data_40HZ/Waveform/d_Gsigma',  # ns
+        'num_gaussian_peaks': 'Data_40HZ/Waveform/i_numPk',
+        # other waveform metric
+        'skew': 'Data_40HZ/Waveform/d_skew1',
+        # The initial number of peaks of the received echo; determined from the smoothed waveform, using alternate parameters
+        'n_peaks': 'Data_40HZ/Waveform/i_nPeaks1',
     }
 
     # put the dimension columns into a dataframe
@@ -149,6 +157,28 @@ def extract_GLAH14_data(filename, replace_fill_values_with_nulls=True):
         unique_index=df.unique_index.values,
         replace_fill_values_with_nulls=replace_fill_values_with_nulls,
     )
+
+    # read the params of fitted gaussian peaks (6-element arrays)
+    gaussian_fit_params = {
+        'gaussian_mu': 'Data_40HZ/Elevation_Offsets/d_gpCntRngOff',  # meters
+        'gaussian_amp': 'Data_40HZ/Waveform/d_Gamp',  # volts
+        'gaussian_sigma': 'Data_40HZ/Waveform/d_Gsigma',  # ns
+    }
+
+    for k, v in gaussian_fit_params.items():
+        temp = f[v][:]
+        if replace_fill_values_with_nulls and (temp > NAN_THRESHOLD).sum() > 0:
+            print(
+                f'Found {(temp > NAN_THRESHOLD).sum()} values greater than threshold of {NAN_THRESHOLD} in variable {k}, replacing with np.nan'
+            )
+            temp.dtype = float
+            temp[(temp > NAN_THRESHOLD)] = np.nan
+
+        ds[k] = xr.DataArray(
+            temp,
+            dims=["unique_index", "n_gaussian_peaks"],
+            coords=[df.unique_index.values, np.arange(6)],
+        )
 
     # expand the multi index
     ds.coords["unique_index"] = df.index
