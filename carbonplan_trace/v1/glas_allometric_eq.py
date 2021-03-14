@@ -1,6 +1,9 @@
+from datetime import datetime, timezone
+
 import fsspec
 import numpy as np
 import xarray as xr
+from gcsfs import GCSFileSystem
 
 from carbonplan_trace.v1.glas_height_metrics import HEIGHT_METRICS_MAP, get_all_height_metrics
 
@@ -214,7 +217,7 @@ def boreal_wetland(ds):
     return 5.52 * ds['VH'] - 5.17 * ds['h50_Neigh'] - 2.22 * ds['acq3_Neigh'] + 4.82
 
 
-def ak_hardwood(ds):
+def w_canada_hardwood(ds):
     required_metrics = ['h90_Neigh', 'h25_Neigh', 'acq3_Neigh']
     ds = get_all_height_metrics(ds, required_metrics)
     return 5.28 * ds['h90_Neigh'] - 4.34 * ds['h25_Neigh'] + 15.95 * ds['acq3_Neigh'] + 37.16
@@ -230,12 +233,6 @@ def ak_mixedwood(ds):
     required_metrics = ['QMCH', 'VH', 'acq3_Neigh']
     ds = get_all_height_metrics(ds, required_metrics)
     return 4.54 * ds['QMCH'] + 2.45 * ds['VH'] + 18.96 * ds['acq3_Neigh'] + 5.76
-
-
-def w_canada_hardwood(ds):
-    required_metrics = ['h90_Neigh', 'h25_Neigh', 'acq3_Neigh']
-    ds = get_all_height_metrics(ds, required_metrics)
-    return 5.28 * ds['h90_Neigh'] - 4.34 * ds['h25_Neigh'] + 15.95 * ds['acq3_Neigh'] + 37.16
 
 
 def w_canada_conifer(ds):
@@ -305,6 +302,23 @@ def zero_biomass(ds):
     )
 
 
+def mexico_north(ds):
+    required_metrics = ['h25_Nelson', 'h90_Nelson', 'acq3_Nelson', 'ct2_Nelson']
+    ds = get_all_height_metrics(ds, required_metrics)
+    return (
+        -3.364 * ds['h25_Nelson']
+        + 3.210 * ds['h90_Nelson']
+        + 21.612 * ds['acq3_Nelson']
+        + 18.778 * ds['ct2_Nelson']
+    )
+
+
+def mexico_south(ds):
+    required_metrics = ['h75_Nelson', 'h10_Nelson', 'trail_Nelson']
+    ds = get_all_height_metrics(ds, required_metrics)
+    return 6.845 * ds['h75_Nelson'] - 6.144 * ds['h10_Nelson'] - 2.565 * ds['trail_Nelson']
+
+
 def conus_conifer_tsui_2012(ds):
     required_metrics = ['MeanH', 'h10_p12', 'h90_p12']
     ds = get_all_height_metrics(ds, required_metrics)
@@ -359,6 +373,113 @@ def conus_conifer_anderson_2006(ds):
     return 29.954 + 14.297 * ds['h50_Neigh']
 
 
+def western_boreal_eurasia_confier(ds):
+    required_metrics = ['h90_Neigh', 'h25_Neigh']
+    ds = get_all_height_metrics(ds, required_metrics)
+    return 5.95 * ds['h90_Neigh'] - 5 * ds['h25_Neigh'] + 4.72
+
+
+def western_boreal_eurasia_mixed_hard_wood(ds):
+    required_metrics = ['h75_Neigh', 'h25_Neigh']
+    ds = get_all_height_metrics(ds, required_metrics)
+    return 8.84 * ds['h75_Neigh'] - 5.09 * ds['h25_Neigh'] - 7.03
+
+
+def eastern_boreal_eurasia(ds):
+    required_metrics = ['h75_Neigh', 'h25_Neigh']
+    ds = get_all_height_metrics(ds, required_metrics)
+    return 13.60 * ds['h75_Neigh'] - 14.30 * ds['h25_Neigh'] - 3.49
+
+
+def palearctic_wang_2013(ds):
+    required_metrics = ['VH']
+    ds = get_all_height_metrics(ds, required_metrics)
+    return np.exp(1.48 + 1.09 * np.log(ds['VH']))
+
+
+def palearctic_takagi_2015(ds):
+    required_metrics = ['MeanH']
+    ds = get_all_height_metrics(ds, required_metrics)
+    return 2 * (6.70 * ds['MeanH'] + 24.5)
+
+
+def palearctic_yavasli_2016(ds):
+    required_metrics = ['HOME_Yavasli', 'pct_HOME_Yavasli']
+    ds = get_all_height_metrics(ds, required_metrics)
+    return 24.11 - 3.84 * ds['HOME_Yavasli'] + 2.44 * ds['pct_HOME_Yavasli']
+
+
+def palearctic_brovkina_2015(ds):
+    required_metrics = ['VH']
+    ds = get_all_height_metrics(ds, required_metrics)
+    return 12.8 * ds['VH'] - 99.9
+
+
+def palearctic_alberti_2013(ds):
+    required_metrics = ['VH']
+    ds = get_all_height_metrics(ds, required_metrics)
+    return 2 * (3.33 * np.power(ds['VH'], 1.27))
+
+
+def palearctic_whrc(ds):
+    required_metrics = ['HOME_Baccini', 'CANOPY_DEP', 'VH']
+    ds = get_all_height_metrics(ds, required_metrics)
+    return 13.7949 + 0.8912 * ds['HOME_Baccini'] + 25.4467 * ds['CANOPY_DEP'] - 18.1995 * ds['VH']
+
+
+def palearctic_shang_and_chazette_2014(ds):
+    required_metrics = ['QMCH']
+    ds = get_all_height_metrics(ds, required_metrics)
+    return 2 * (42.36 + 0.24 * np.square(ds['QMCH']))
+
+
+def palearctic_simonson_2016(ds):
+    required_metrics = ['VH']
+    ds = get_all_height_metrics(ds, required_metrics)
+    return np.exp(3.02 + 0.89 * np.log(ds['VH']))
+
+
+def palearctic_patenaude_2004(ds):
+    required_metrics = ['h80_p12']
+    ds = get_all_height_metrics(ds, required_metrics)
+    return 2 * (1.36 * 0.68 * 0.49) * 19.186 * np.exp(0.1256 * ds['h80_p12'])
+
+
+def suganuma_2006(ds):
+    required_metrics = ['treecover2000_mean']
+    ds = get_all_height_metrics(ds, required_metrics)
+    return 119.9699 * np.power(ds['treecover2000_mean'] / 100.0, 1.1781)
+
+
+def australia_beets_2011(ds):
+    required_metrics = ['h30_canopy', 'treecover2000_mean']
+    ds = get_all_height_metrics(ds, required_metrics)
+    return 2 * (-45.8 + 7.52 * ds['h30_canopy'] + 0.67 * ds['treecover2000_mean'])
+
+
+def australia_lucas_2008(ds):
+    required_metrics = [
+        'h05_canopy',
+        'h10_canopy',
+        'h20_canopy',
+        'h50_canopy',
+        'h75_canopy',
+        'h80_canopy',
+        'treecover2000_mean',
+    ]
+    ds = get_all_height_metrics(ds, required_metrics)
+    return (
+        -44.4 * ds['h05_canopy']
+        + 57.98 * ds['h10_canopy']
+        - 18.8 * ds['h20_canopy']
+        + 8.3 * ds['h50_canopy']
+        - 34.98 * ds['h75_canopy']
+        + 32.2 * ds['h80_canopy']
+        + 0.86 * ds['treecover2000_mean']
+        - 20.68
+    )
+
+
 ALLOMETRIC_EQUATIONS_MAP = {
     'afrotropic': tropics,
     'tropical_asia': tropics,
@@ -366,7 +487,7 @@ ALLOMETRIC_EQUATIONS_MAP = {
     'extratropical_neotropic': extratropical_neotropic,
     'ak_wetland_steep': ak_wetland_steep,
     'ak_wetland_flat': boreal_wetland,
-    'ak_hardwood': ak_hardwood,
+    'ak_hardwood': w_canada_hardwood,
     'ak_conifer': ak_conifer,
     'ak_mixedwood': ak_mixedwood,
     'w_canada_wetland': boreal_wetland,
@@ -383,8 +504,8 @@ ALLOMETRIC_EQUATIONS_MAP = {
     'conus_hardwood': conus_hardwood,
     'conus_mixedwood': conus_mixedwood,
     'zero_biomass': zero_biomass,
-    # 'mexico_north': mexico_north,
-    # 'mexico_south': mexico_south,
+    'mexico_north': mexico_north,
+    'mexico_south': mexico_south,
     'conus_conifer_nelson_2017': conus_mixedwood,
     'conus_conifer_tsui_2012': conus_conifer_tsui_2012,
     'conus_conifer_neigh_2013': conus_conifer_neigh_2013,
@@ -395,21 +516,23 @@ ALLOMETRIC_EQUATIONS_MAP = {
     'conus_conifer_skowronski_2007': conus_conifer_skowronski_2007,
     'conus_conifer_sun_2011': conus_conifer_sun_2011,
     'conus_conifer_anderson_2006': conus_conifer_anderson_2006,
-    # 'eastern_boreal_eurasia': eastern_boreal_eurasia,
-    # 'palearctic_wang_2013': palearctic_wang_2013,
-    # 'palearctic_takagi_2015': palearctic_takagi_2015,
-    # 'palearctic_yavasli_2016': palearctic_yavasli_2016,
-    # 'palearctic_brovkina_2015': palearctic_brovkina_2015,
-    # 'palearctic_alberti_2013': palearctic_alberti_2013,
-    # 'palearctic_whrc': palearctic_whrc,
-    # 'palearctic_shang_and_chazette_2014': palearctic_shang_and_chazette_2014,
-    # 'palearctic_simonson_2016': palearctic_simonson_2016,
-    # 'palearctic_patenaude_2004': palearctic_patenaude_2004,
-    # 'palearctic_suganuma_2006': palearctic_suganuma_2006,
-    # 'australia_beets_2011': australia_beets_2011,
-    # 'australia_suganuma_2006': australia_suganuma_2006,
-    # 'australia_lucas_2008': australia_lucas_2008,
-    # 'australia_baccini_2012': australia_baccini_2012
+    'wbe_confier': western_boreal_eurasia_confier,
+    'wbe_mixed_hard_wood': western_boreal_eurasia_mixed_hard_wood,
+    'eastern_boreal_eurasia': eastern_boreal_eurasia,
+    'palearctic_wang_2013': palearctic_wang_2013,
+    'palearctic_takagi_2015': palearctic_takagi_2015,
+    'palearctic_yavasli_2016': palearctic_yavasli_2016,
+    'palearctic_brovkina_2015': palearctic_brovkina_2015,
+    'palearctic_alberti_2013': palearctic_alberti_2013,
+    'palearctic_whrc': palearctic_whrc,
+    'palearctic_shang_and_chazette_2014': palearctic_shang_and_chazette_2014,
+    'palearctic_simonson_2016': palearctic_simonson_2016,
+    'palearctic_patenaude_2004': palearctic_patenaude_2004,
+    'palearctic_suganuma_2006': suganuma_2006,
+    'australia_beets_2011': australia_beets_2011,
+    'australia_suganuma_2006': suganuma_2006,
+    'australia_lucas_2008': australia_lucas_2008,
+    'australia_baccini_2012': tropics,
 }
 
 
@@ -417,7 +540,7 @@ def get_list_of_mask_tiles():
     """
     Ecoregions mask is stored in 10 degree tiles, grab the
     """
-    fs = fsspec.get_filesystem_class('gs')(account_name='carbonplan')
+    fs = GCSFileSystem(cache_timeout=0)
 
     folder = 'gs://carbonplan-scratch/trace_scratch/ecoregions_mask/'
     # fs.ls includes the parent folder itself, skip that link
@@ -426,11 +549,9 @@ def get_list_of_mask_tiles():
     return paths
 
 
-def parse_bounding_lat_lon_for_tile(path):
-    # grab the file name without folder and extension
-    fn = path.split('/')[-1].split('.')[0]
-    lat = fn.split('_')[0]
-    lon = fn.split('_')[1]
+def parse_bounding_lat_lon_for_tile(filename):
+    lat = filename.split('_')[0]
+    lon = filename.split('_')[1]
 
     # the tile name denotes the upper left corner of each tile
     if lat.endswith('N'):
@@ -471,7 +592,9 @@ def subset_data_for_tile(data, tile_path):
     Return a subset of data within the bounding lat/lon box of target tile
     The function assumes that lat/lon are not coordinates in the data
     """
-    min_lat, max_lat, min_lon, max_lon = parse_bounding_lat_lon_for_tile(tile_path)
+    # grab the file name without folder and extension
+    fn = tile_path.split('/')[-1].split('.')[0]
+    min_lat, max_lat, min_lon, max_lon = parse_bounding_lat_lon_for_tile(fn)
     sub = data.where(
         (data.lat > min_lat) & (data.lat <= max_lat) & (data.lon > min_lon) & (data.lon <= max_lon),
         drop=True,
@@ -639,19 +762,103 @@ def assign_allometric_eq(ds):
     return output
 
 
+def filter_on_time_of_year(ds):
+    """
+    From Farina et al 2018:
+    For the regions north of the tropics, we used GLAS laser campaigns L2A, L2C, L3A, L3C, L3D, L3F, L3I, and L3K.
+    For regions south of the tropics, we used GLAS laser campaigns L1A, L2B, L2D, L3B, L3E, L3G, L3H, and L3J.
+    All of the sixteen campaigns listed above were used for tropical regions.
+    When applying the height-biomass equations published by Popescu et al. (2011) and Shang and Chazette (2014),
+    we used GLAS data acquired during leaf-off conditions because leaf-off data were used to train the equations.
+
+    Timing of campaigns retrieved from https://icesat.gsfc.nasa.gov/icesat/missionevents.php, https://nsidc.org/data/icesat/orbit_grnd_trck.html
+    """
+    # filter out campaigns 2E and 2F according to Farina et al 2018 (data after mar 1st, 2019)
+    d = datetime(2009, 3, 1, 0, 0, 0, tzinfo=timezone.utc).timestamp()
+    ds = ds.where(ds.time < d, drop=True)
+    # TODO: filter out campaign 1B 2003-03-20	2003-03-29
+
+    # define regions north or south of the tropics
+    special_eq = ds.allometric_eq.isin(
+        ['conus_conifer_popescu_2011', 'palearctic_shang_and_chazette_2014']
+    )
+    north = (ds.lat > 23.5) & (
+        ~ds.allometric_eq.isin(
+            ['afrotropic', 'tropical_asia', 'tropical_neotropic', 'extratropical_neotropic']
+        )
+    )
+    south = (ds.lat < -23.5) & (
+        ~ds.allometric_eq.isin(
+            ['afrotropic', 'tropical_asia', 'tropical_neotropic', 'extratropical_neotropic']
+        )
+    )
+
+    # define time
+    # 2006-10-25 to 2006-11-27
+    L3G_start = datetime(2006, 10, 25, 0, 0, 0, tzinfo=timezone.utc).timestamp()
+    L3G_end = datetime(2006, 11, 28, 0, 0, 0, tzinfo=timezone.utc).timestamp()
+    # 2008-11-25 to 2008-12-17
+    L2D_start = datetime(2008, 11, 25, 0, 0, 0, tzinfo=timezone.utc).timestamp()
+    L2D_end = datetime(2008, 12, 18, 0, 0, 0, tzinfo=timezone.utc).timestamp()
+    north_leaf_on = (
+        (ds.time.dt.month >= 5)
+        & ((ds.time < L3G_start) | (ds.time > L3G_end))
+        & ((ds.time < L2D_start) | (ds.time > L2D_end))
+    )
+    south_leaf_on = (
+        (ds.time.dt.month < 5)
+        & ((ds.time >= L3G_start) & (ds.time <= L3G_end))
+        & ((ds.time >= L2D_start) & (ds.time <= L2D_end))
+    )
+    # if a record is: 1) in the north, 2) not in north leaf on time period, and 3) not in special eq, drop them
+    ds = ds.where(~(north & ~north_leaf_on & ~special_eq), drop=True)
+    ds = ds.where(~(south & ~south_leaf_on & ~special_eq), drop=True)
+
+    # if a record in: 1) in the special eq, 2) in the north, 3) not in the north leaf off (aka south leaf on) time period, drop them
+    ds = ds.where(~(north & ~south_leaf_on & special_eq), drop=True)
+    ds = ds.where(~(south & ~north_leaf_on & special_eq), drop=True)
+
+    return ds
+
+
 def calculate_biomass(ds):
-    print(f'Starting with {ds.dims["unique_index"]} records')
     out = []
+    missing_eq_name = []
     for eq_name, group in ds.groupby('allometric_eq'):
         if eq_name in ALLOMETRIC_EQUATIONS_MAP:
             biomass = ALLOMETRIC_EQUATIONS_MAP[eq_name](group)
             biomass.name = 'biomass'
             out.append(biomass)
+        else:
+            missing_eq_name.append(eq_name)
 
     out = xr.concat(out, dim='unique_index')
-    print(f'Ending with {len(out)} records')
+    if len(missing_eq_name) > 0:
+        print(
+            f'Dropping {ds.dims["unique_index"] - len(out)} records out of {ds.dims["unique_index"]} due to missing equations {missing_eq_name}'
+        )
 
     return out
+
+
+def post_process_biomass(ds):
+    # drop null biomass records, this is due to missing equations
+    ds = ds.where(~ds.biomass.isnull(), drop=True)
+
+    ds = get_all_height_metrics(ds, metrics=['VH', 'treecover2000_mean'])
+    # drop records where VH or treecover2000_mean are negative
+    mask = (ds.VH > 0) & (ds.treecover2000_mean > 0)
+    ds = ds.where(mask, drop=True)
+    print(f'Dropping {100 - mask.mean() * 100}% of records due to negative tree canopy metrics')
+
+    # if VH < 2, predicted biomass < 1 Mg/ha, or canopy cover < 10%, set biomass to 0
+    mask = (ds.VH < 2) | (ds.biomass < 1) | (ds.treecover2000_mean < 10)
+    print(
+        f'Setting the biomass to 0 for {mask.mean() * 100}% of records based on Harris et al procedures'
+    )
+    ds['biomass'] = xr.where(mask, x=0, y=ds.biomass)
+
+    return ds
 
 
 def apply_allometric_equation(ds, tile_path):
@@ -660,14 +867,14 @@ def apply_allometric_equation(ds, tile_path):
     then apply the allometric equation with respective height metrics to get biomass
     """
     # assign ecoregions
-    print('assigning ecoregions')
     ds = assign_ecoregion_values(ds, tile_path)
 
     # assign allometric eq
-    print('assigning allometric eq')
     ds["allometric_eq"] = assign_allometric_eq(ds)
+    ds = filter_on_time_of_year(ds)
 
     # apply allometric equations
     ds["biomass"] = calculate_biomass(ds)
+    ds = post_process_biomass(ds)
 
     return ds

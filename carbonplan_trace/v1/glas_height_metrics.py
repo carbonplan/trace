@@ -210,6 +210,53 @@ def pct_90_of_sig_beg_and_adj_ground_to_adj_ground_ht(ds):
     )
 
 
+def pct_05_canopy_ht(ds):
+    """
+    the distance, in meters, between 0.5 m above the ground peak and the height at which 10% of
+    the waveform energy from 0.5 m above the ground peak to signal beginning has been reached.
+    Ground peak defined as whichever of the two lowest peaks has greater amplitude.
+    """
+    return get_heights_from_distance(
+        ds, top_metric='pct_05_canopy_dist', bottom_metric='bottom_of_canopy_dist'
+    )
+
+
+def pct_10_canopy_ht(ds):
+    return get_heights_from_distance(
+        ds, top_metric='pct_10_canopy_dist', bottom_metric='bottom_of_canopy_dist'
+    )
+
+
+def pct_20_canopy_ht(ds):
+    return get_heights_from_distance(
+        ds, top_metric='pct_20_canopy_dist', bottom_metric='bottom_of_canopy_dist'
+    )
+
+
+def pct_30_canopy_ht(ds):
+    return get_heights_from_distance(
+        ds, top_metric='pct_30_canopy_dist', bottom_metric='bottom_of_canopy_dist'
+    )
+
+
+def pct_50_canopy_ht(ds):
+    return get_heights_from_distance(
+        ds, top_metric='pct_50_canopy_dist', bottom_metric='bottom_of_canopy_dist'
+    )
+
+
+def pct_75_canopy_ht(ds):
+    return get_heights_from_distance(
+        ds, top_metric='pct_75_canopy_dist', bottom_metric='bottom_of_canopy_dist'
+    )
+
+
+def pct_80_canopy_ht(ds):
+    return get_heights_from_distance(
+        ds, top_metric='pct_80_canopy_dist', bottom_metric='bottom_of_canopy_dist'
+    )
+
+
 def get_leading_edge_extent(ds):
     """
     the height difference between the elevation of the signal start and the first elevation at which the
@@ -312,6 +359,34 @@ def get_percentile_of_sig_beg_and_adj_ground_dist(ds, percentile):
     return ds.rec_wf_sample_dist.where(cumsum > target).max(dim="rec_bin")
 
 
+def get_percentile_canopy_dist(ds, percentile):
+    """
+    the height at which 10% of the waveform energy from 0.5 m above the ground peak
+    to signal beginning has been reached
+    """
+    from carbonplan_trace.v1.glas_preprocess import select_valid_area  # avoid circular import
+
+    ds = get_dist_metric_value(ds, metric='bottom_of_canopy_dist')
+
+    # the processed wf is from sig beg to sig end, select sig beg to ground peak
+    canopy = select_valid_area(
+        bins=ds.rec_wf_sample_dist,
+        wf=ds.processed_wf,
+        signal_begin_dist=ds.sig_begin_dist,
+        signal_end_dist=ds.bottom_of_canopy_dist,
+    )
+
+    # make sure dimensions matches up
+    dims = ds.processed_wf.dims
+    canopy = canopy.transpose(dims[0], dims[1])
+
+    total = canopy.sum(dim="rec_bin")
+    cumsum = canopy.cumsum(dim="rec_bin")
+    target = total * percentile / 100.0
+
+    return ds.rec_wf_sample_dist.where(cumsum > target).max(dim="rec_bin")
+
+
 def get_ground_peak_dist(ds):
     """
     the lowest of gaussian fit peaks from GLAH14
@@ -387,6 +462,15 @@ def get_adj_ground_peak_dist(ds):
     # We have a filter where we only process records with at least 2 peaks -- fillna is needed here because argmax doesn't deal with all nans
     loc = ds.gaussian_amp.isel(n_gaussian_peaks=slice(2)).fillna(0).argmax(dim="n_gaussian_peaks")
     return ds.gaussian_fit_dist.isel(n_gaussian_peaks=loc)
+
+
+def get_bottom_of_canopy_dist(ds):
+    """
+    0.5 m above the ground peak. Ground peak defined as whichever of the two lowest peaks has greater amplitude
+    """
+    ds = get_dist_metric_value(ds, metric='adj_ground_peak_dist')
+
+    return ds.adj_ground_peak_dist - 0.5
 
 
 def get_quadratic_mean_dist(ds):
@@ -492,6 +576,34 @@ def get_pct_80_of_sig_beg_and_adj_ground_dist(ds):
 
 def get_pct_90_of_sig_beg_and_adj_ground_dist(ds):
     return get_percentile_of_sig_beg_and_adj_ground_dist(ds, 90)
+
+
+def get_pct_05_canopy_dist(ds):
+    return get_percentile_canopy_dist(ds, 5)
+
+
+def get_pct_10_canopy_dist(ds):
+    return get_percentile_canopy_dist(ds, 10)
+
+
+def get_pct_20_canopy_dist(ds):
+    return get_percentile_canopy_dist(ds, 20)
+
+
+def get_pct_30_canopy_dist(ds):
+    return get_percentile_canopy_dist(ds, 30)
+
+
+def get_pct_50_canopy_dist(ds):
+    return get_percentile_canopy_dist(ds, 50)
+
+
+def get_pct_75_canopy_dist(ds):
+    return get_percentile_canopy_dist(ds, 75)
+
+
+def get_pct_80_canopy_dist(ds):
+    return get_percentile_canopy_dist(ds, 80)
 
 
 def get_wf_max_e_dist(ds):
@@ -835,6 +947,14 @@ DISTANCE_METRICS_MAP = {
     "pct_10_of_sig_beg_and_adj_ground_dist": get_pct_10_of_sig_beg_and_adj_ground_dist,
     "pct_80_of_sig_beg_and_adj_ground_dist": get_pct_80_of_sig_beg_and_adj_ground_dist,
     "pct_90_of_sig_beg_and_adj_ground_dist": get_pct_90_of_sig_beg_and_adj_ground_dist,
+    "bottom_of_canopy_dist": get_bottom_of_canopy_dist,
+    "pct_05_canopy_dist": get_pct_05_canopy_dist,
+    "pct_10_canopy_dist": get_pct_10_canopy_dist,
+    "pct_20_canopy_dist": get_pct_20_canopy_dist,
+    "pct_30_canopy_dist": get_pct_30_canopy_dist,
+    "pct_50_canopy_dist": get_pct_50_canopy_dist,
+    "pct_75_canopy_dist": get_pct_75_canopy_dist,
+    "pct_80_canopy_dist": get_pct_80_canopy_dist,
 }
 
 
@@ -905,6 +1025,13 @@ HEIGHT_METRICS_MAP = {
     "h10_p12": pct_10_of_sig_beg_and_adj_ground_to_adj_ground_ht,
     "h80_p12": pct_80_of_sig_beg_and_adj_ground_to_adj_ground_ht,
     "h90_p12": pct_90_of_sig_beg_and_adj_ground_to_adj_ground_ht,
+    "h05_canopy": pct_05_canopy_ht,
+    "h10_canopy": pct_10_canopy_ht,
+    "h20_canopy": pct_20_canopy_ht,
+    "h30_canopy": pct_30_canopy_ht,
+    "h50_canopy": pct_50_canopy_ht,
+    "h75_canopy": pct_75_canopy_ht,
+    "h80_canopy": pct_80_canopy_ht,
     "f_slope": front_slope_to_surface_energy_ratio,
     "senergy": energy_adj_ground_to_sig_end,
     "trail_Nelson": ground_to_sig_end_ht,

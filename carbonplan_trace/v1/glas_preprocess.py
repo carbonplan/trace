@@ -73,60 +73,33 @@ def get_mask(ds):
     """
     True in mask = records to use
     """
-
-    def get_pct_false(m):
-        return round(100.0 - m.sum().values / m.count().values * 100, 2)
-
     # all non nulls in the GLAH14 dataset
     mask = ~ds.lat.isnull()
     mask.name = 'mask'
-    m1 = get_pct_false(mask)
+    m1 = 100.0 - mask.mean() * 100.0
     print(f'filtering out {m1}% of records due to null GLAH14 data')
 
     # Harris et al 2021 filtering conditions listed in Supplementary Information
-    mask = mask & (ds.num_gaussian_peaks >= 2)  # have at least two peaks
-    m2 = get_pct_false(mask)
-    print(f'filtering out {m2-m1}% of records due to number of gaussian peaks')
-    m1 = m2
-
-    mask = mask & (
-        ds.rec_wf.max(dim='rec_bin') >= (ds.noise_mean * 2)
-    )  # max amplitude of waveform greater than 2x baseline noise
-    m2 = get_pct_false(mask)
-    print(f'filtering out {m2-m1}% of records due to max amplitude too small')
-    m1 = m2
-
-    # mask = mask & (
-    #     abs(ds.elevation_SRTM - (ds.elevation + ds.elevation_correction)) <= 30
-    # )  # discrepancy bt SRTM and GLAS derived elevation less than 30m
-    # m2 = get_pct_false(mask)
-    # print(f'filtering out {m2-m1}% of records due to discrepancy in SRTM and GLAS elev')
-    # m1 = m2
-
     mask = (
         mask
+        & (ds.num_gaussian_peaks >= 2)  # have at least two peaks
+        # max amplitude of waveform greater than 2x baseline noise
+        & (ds.rec_wf.max(dim='rec_bin') >= (ds.noise_mean * 2))
+        # discrepancy bt SRTM and GLAS derived elevation less than 30m
+        & (abs(ds.elevation_SRTM - (ds.elevation + ds.elevation_correction)) <= 30)
         # signal beginning is less than 70m (otherwise indicates potential inference of signal)
         & (abs(ds.ground_peak_dist - ds.sig_begin_dist) <= 70)
         # signal end is less than 20 and greater than 1m (otherwise indicates sig end is improperly captured)
         & (abs(ds.ground_peak_dist - ds.sig_end_dist) <= 20)
         & (abs(ds.ground_peak_dist - ds.sig_end_dist) >= 1)
+        # leading edge <= 50% of wf extent, otherwise indicates large distances in canopy height
+        & (ds.leading_edge_extent <= (ds.wf_extent * 0.5))
+        # trailing edge <= 35% of wf extent, otherwise indicates impacts from high slope
+        & (ds.trailing_edge_extent <= (ds.wf_extent * 0.35))
     )
-    m2 = get_pct_false(mask)
-    print(f'filtering out {m2-m1}% of records due to signal beginning or end out of bounds')
-    m1 = m2
 
-    mask = mask & (
-        ds.leading_edge_extent <= (ds.wf_extent * 0.5)
-    )  # leading edge <= 50% of wf extent, otherwise indicates large distances in canopy height
-    m2 = get_pct_false(mask)
-    print(f'filtering out {m2-m1}% of records due to leading edge extent too large')
-    m1 = m2
-
-    mask = mask & (
-        ds.trailing_edge_extent <= (ds.wf_extent * 0.35)
-    )  # trailing edge <= 35% of wf extent, otherwise indicates impacts from high slope
-    m2 = get_pct_false(mask)
-    print(f'filtering out {m2-m1}% of records due to trailing edge extent too large')
+    m2 = 100.0 - mask.mean() * 100.0
+    print(f'filtering out {m2-m1}% of records due to additional filtering by Harris et al')
 
     return mask
 
@@ -160,7 +133,8 @@ def smooth_wf(rec_wf, tx_wf, verbose=False):
             print('skipping record in smooothing due to nans')
         return rec_wf
 
-    # TODO: in Farina et al 2018 this value is directly taken from GLAH05 data Data_40HZ/Transmit_Energy/d_sigmaTr
+    # note: in Farina et al 2018 this value is directly taken from GLAH05 data Data_40HZ/Transmit_Energy/d_sigmaTr
+    # re fitting here since the data would be in `ns` unit and requires some translation to be used directly here
     sigma = find_gaussian_fit_sigma(tx_wf)
 
     return gaussian_filter1d(input=rec_wf, sigma=sigma)
@@ -224,7 +198,6 @@ def preprocess(ds):
     # apply filtering
     ds["mask"] = get_mask(ds)
     total = ds.noise_mean.fillna(0).count().values
-    print('applying mask')
     ds = ds.where(ds.mask, drop=True)
     remained = ds.noise_mean.fillna(0).count().values
     print(

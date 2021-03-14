@@ -17,7 +17,7 @@ def save_to_zarr(ds, url, list_of_variables=None, mode='w'):
         if 'chunks' in ds[v].encoding:
             del ds[v].encoding['chunks']
 
-    ds[list_of_variables].to_zarr(mapper, mode=mode, consolidated=True)
+    ds[list_of_variables].to_zarr(mapper, mode=mode)
 
 
 def get_transformer(p1=4326, p2=32610):
