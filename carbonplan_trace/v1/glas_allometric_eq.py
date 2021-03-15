@@ -538,7 +538,7 @@ ALLOMETRIC_EQUATIONS_MAP = {
 
 def get_list_of_mask_tiles():
     """
-    Ecoregions mask is stored in 10 degree tiles, grab the
+    Ecoregions mask is stored in 10 degree tiles, grab the filepaths
     """
     fs = GCSFileSystem(cache_timeout=0)
 
@@ -550,6 +550,10 @@ def get_list_of_mask_tiles():
 
 
 def parse_bounding_lat_lon_for_tile(filename):
+    """
+    file name is structured as {lat}_{lon} (e.g. 60N_080W), with the name denoting the upper left corner of
+    a 10x10 degree box
+    """
     lat = filename.split('_')[0]
     lon = filename.split('_')[1]
 
@@ -603,7 +607,7 @@ def subset_data_for_tile(data, tile_path):
 
 
 def find_ecoregions_values(data, ecoregions):
-    # ecoregions map contains Ecoregions2017 and NLCD data, and will eventually include EOSD
+    # ecoregions map contains Ecoregions2017, NLCD, and EOSD data
     eco_records = ecoregions.sel(lat=data.lat, lon=data.lon, method="nearest")
     assert (data.unique_index == eco_records.unique_index).mean() == 1
     eco_records = eco_records.drop_vars(['lat', 'lon'])
@@ -644,7 +648,7 @@ def assign_ecoregion_values(ds, tile_path):
 
 def assign_allometric_eq(ds):
     """
-    Given a dataset with ecoregion values (Ecoregions2017, NLCD, IGBP), f_slope, and senergy, assign the correct allometric equation
+    Given a dataset with ecoregion values (Ecoregions2017, NLCD, EOSD, IGBP), f_slope, and senergy, assign the correct allometric equation
     """
     # calculate f_slope and senergy if not in dataset
     for v in ['f_slope', 'senergy']:
@@ -841,13 +845,12 @@ def calculate_biomass(ds):
             f'Dropping {ds.dims["unique_index"] - out.dims["unique_index"]} records out of {ds.dims["unique_index"]} due to missing equations {missing_eq_name}'
         )
 
+    assert out.biomass.isnull().mean() == 0
+
     return out
 
 
 def post_process_biomass(ds):
-    # drop null biomass records, this is due to missing equations
-    ds = ds.where(~ds.biomass.isnull(), drop=True)
-
     ds = get_all_height_metrics(ds, metrics=['VH', 'treecover2000_mean'])
     # drop records where VH or treecover2000_mean are negative
     mask = (ds.VH > 0) & (ds.treecover2000_mean > 0)
@@ -856,7 +859,7 @@ def post_process_biomass(ds):
         f'Dropping {100 - mask.mean().values * 100}% of records due to negative tree canopy metrics'
     )
 
-    # if VH < 2, predicted biomass < 1 Mg/ha, or canopy cover < 10%, set biomass to 0
+    # From Farina 2018: if VH < 2, predicted biomass < 1 Mg/ha, or canopy cover < 10%, set biomass to 0
     mask = (ds.VH < 2) | (ds.biomass < 1) | (ds.treecover2000_mean < 10)
     print(
         f'Setting the biomass to 0 for {mask.mean().values * 100}% of records based on Harris et al procedures'
