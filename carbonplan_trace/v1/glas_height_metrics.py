@@ -30,28 +30,35 @@ def sig_beg_to_adj_ground_ht(ds):
     )
 
 
-def quadratic_mean_to_ground_ht(ds):
+def first_peak_to_adj_ground_ht(ds):
     """
-    Quadratic mean height of the waveform from the signal beginning to the last peak (meters).
+    Vertical distance, in meters, between the height of the ground peak and the height of the first peak
+    (i.e., the peak closest to the satellite). Ground peak defined as whichever of the two lowest peaks
+    has greater amplitude.
     """
     return get_heights_from_distance(
-        ds, top_metric='quadratic_mean_dist', bottom_metric='ground_peak_dist'
+        ds, top_metric='first_peak_dist', bottom_metric='adj_ground_peak_dist'
     )
 
 
-def mean_to_ground_ht(ds):
+def quadratic_mean_to_adj_ground_ht(ds):
     """
-    Mean height of the waveform from the signal beginning to the last peak (meters).
+    Quadratic mean height of the waveform from ground peak to signal beginning (meters).
+    Ground peak defined as whichever of the two lowest peaks has greater amplitude.
     """
-    return get_heights_from_distance(ds, top_metric='mean_dist', bottom_metric='ground_peak_dist')
+    return get_heights_from_distance(
+        ds, top_metric='quadratic_mean_dist', bottom_metric='adj_ground_peak_dist'
+    )
 
 
-def median_to_sig_end_ht(ds):
+def mean_to_adj_ground_ht(ds):
     """
-    Height of median energy (meters). The distance, in meters, between the height at which 50% of the total waveform energy from signal
-    beginning to signal end has been reached and the height of signal end.
+    Mean height of the waveform from ground peak to signal beginning (meters).
+    Ground peak defined as whichever of the two lowest peaks has greater amplitude.
     """
-    return get_heights_from_distance(ds, top_metric='pct_50_dist', bottom_metric='sig_end_dist')
+    return get_heights_from_distance(
+        ds, top_metric='mean_dist', bottom_metric='adj_ground_peak_dist'
+    )
 
 
 def centroid_to_adj_ground_ht(ds):
@@ -113,20 +120,28 @@ def sig_beg_to_start_of_ground_peak_ht(ds):
 
 
 # TODO: change the next set of functions to take in pct as a param and avoid repeating
-def pct_25_to_ground_ht(ds):
-    return get_heights_from_distance(ds, top_metric='pct_25_dist', bottom_metric='ground_peak_dist')
+def pct_25_to_adj_ground_ht(ds):
+    return get_heights_from_distance(
+        ds, top_metric='pct_25_dist', bottom_metric='adj_ground_peak_dist'
+    )
 
 
-def pct_50_to_ground_ht(ds):
-    return get_heights_from_distance(ds, top_metric='pct_50_dist', bottom_metric='ground_peak_dist')
+def pct_50_to_adj_ground_ht(ds):
+    return get_heights_from_distance(
+        ds, top_metric='pct_50_dist', bottom_metric='adj_ground_peak_dist'
+    )
 
 
-def pct_75_to_ground_ht(ds):
-    return get_heights_from_distance(ds, top_metric='pct_75_dist', bottom_metric='ground_peak_dist')
+def pct_75_to_adj_ground_ht(ds):
+    return get_heights_from_distance(
+        ds, top_metric='pct_75_dist', bottom_metric='adj_ground_peak_dist'
+    )
 
 
-def pct_90_to_ground_ht(ds):
-    return get_heights_from_distance(ds, top_metric='pct_90_dist', bottom_metric='ground_peak_dist')
+def pct_90_to_adj_ground_ht(ds):
+    return get_heights_from_distance(
+        ds, top_metric='pct_90_dist', bottom_metric='adj_ground_peak_dist'
+    )
 
 
 def pct_05_to_sig_end_ht(ds):
@@ -153,10 +168,6 @@ def pct_50_to_sig_end_ht(ds):
     return get_heights_from_distance(ds, top_metric='pct_50_dist', bottom_metric='sig_end_dist')
 
 
-def pct_60_to_sig_end_ht(ds):
-    return get_heights_from_distance(ds, top_metric='pct_60_dist', bottom_metric='sig_end_dist')
-
-
 def pct_75_to_sig_end_ht(ds):
     return get_heights_from_distance(ds, top_metric='pct_75_dist', bottom_metric='sig_end_dist')
 
@@ -167,6 +178,83 @@ def pct_80_to_sig_end_ht(ds):
 
 def pct_90_to_sig_end_ht(ds):
     return get_heights_from_distance(ds, top_metric='pct_90_dist', bottom_metric='sig_end_dist')
+
+
+def pct_10_from_sig_beg_to_sig_end_ht(ds):
+    return get_heights_from_distance(ds, top_metric='pct_90_dist', bottom_metric='sig_end_dist')
+
+
+def pct_25_from_sig_beg_to_sig_end_ht(ds):
+    return get_heights_from_distance(ds, top_metric='pct_75_dist', bottom_metric='sig_end_dist')
+
+
+def pct_60_from_sig_beg_to_sig_end_ht(ds):
+    return get_heights_from_distance(ds, top_metric='pct_40_dist', bottom_metric='sig_end_dist')
+
+
+def pct_10_of_sig_beg_and_adj_ground_to_adj_ground_ht(ds):
+    return get_heights_from_distance(
+        ds, top_metric='pct_10_of_sig_beg_and_adj_ground_dist', bottom_metric='adj_ground_peak_dist'
+    )
+
+
+def pct_80_of_sig_beg_and_adj_ground_to_adj_ground_ht(ds):
+    return get_heights_from_distance(
+        ds, top_metric='pct_80_of_sig_beg_and_adj_ground_dist', bottom_metric='adj_ground_peak_dist'
+    )
+
+
+def pct_90_of_sig_beg_and_adj_ground_to_adj_ground_ht(ds):
+    return get_heights_from_distance(
+        ds, top_metric='pct_90_of_sig_beg_and_adj_ground_dist', bottom_metric='adj_ground_peak_dist'
+    )
+
+
+def pct_05_canopy_ht(ds):
+    """
+    the distance, in meters, between 0.5 m above the ground peak and the height at which 10% of
+    the waveform energy from 0.5 m above the ground peak to signal beginning has been reached.
+    Ground peak defined as whichever of the two lowest peaks has greater amplitude.
+    """
+    return get_heights_from_distance(
+        ds, top_metric='pct_05_canopy_dist', bottom_metric='bottom_of_canopy_dist'
+    )
+
+
+def pct_10_canopy_ht(ds):
+    return get_heights_from_distance(
+        ds, top_metric='pct_10_canopy_dist', bottom_metric='bottom_of_canopy_dist'
+    )
+
+
+def pct_20_canopy_ht(ds):
+    return get_heights_from_distance(
+        ds, top_metric='pct_20_canopy_dist', bottom_metric='bottom_of_canopy_dist'
+    )
+
+
+def pct_30_canopy_ht(ds):
+    return get_heights_from_distance(
+        ds, top_metric='pct_30_canopy_dist', bottom_metric='bottom_of_canopy_dist'
+    )
+
+
+def pct_50_canopy_ht(ds):
+    return get_heights_from_distance(
+        ds, top_metric='pct_50_canopy_dist', bottom_metric='bottom_of_canopy_dist'
+    )
+
+
+def pct_75_canopy_ht(ds):
+    return get_heights_from_distance(
+        ds, top_metric='pct_75_canopy_dist', bottom_metric='bottom_of_canopy_dist'
+    )
+
+
+def pct_80_canopy_ht(ds):
+    return get_heights_from_distance(
+        ds, top_metric='pct_80_canopy_dist', bottom_metric='bottom_of_canopy_dist'
+    )
 
 
 def get_leading_edge_extent(ds):
@@ -229,7 +317,8 @@ def get_gaussian_fit_dist(ds):
 
 def get_percentile_dist(ds, percentile):
     """
-    the distance at which x% of the total waveform energy from signal beginning to signal end has been reached
+    the distance at which x% of the total waveform energy from signal beginning to signal end has been reached.
+    energy accumulated relative to signal end.
     as an example, 25th percentile dist should be larger than 50th percentile dist, where larger dist = further
     to the satellite = lower elevation on earth
     percentiles is a list in hundredth format (e.g. to get 10th percentile input value 10)
@@ -241,12 +330,77 @@ def get_percentile_dist(ds, percentile):
     return ds.rec_wf_sample_dist.where(cumsum > target).max(dim="rec_bin")
 
 
+def get_percentile_of_sig_beg_and_adj_ground_dist(ds, percentile):
+    """
+    the distance, in meters, between the ground peak and the height at which 10% of the waveform energy
+    from ground peak to signal beginning has been reached. Waveform energy accumulation relative to
+     ground peak. Ground peak defined as whichever of the two lowest peaks has greater amplitude.
+    """
+    from carbonplan_trace.v1.glas_preprocess import select_valid_area  # avoid circular import
+
+    ds = get_dist_metric_value(ds, metric='adj_ground_peak_dist')
+
+    # the processed wf is from sig beg to sig end, select sig beg to ground peak
+    sig_beg_to_adj_ground = select_valid_area(
+        bins=ds.rec_wf_sample_dist,
+        wf=ds.processed_wf,
+        signal_begin_dist=ds.sig_begin_dist,
+        signal_end_dist=ds.adj_ground_peak_dist,
+    )
+
+    # make sure dimensions matches up
+    dims = ds.processed_wf.dims
+    sig_beg_to_adj_ground = sig_beg_to_adj_ground.transpose(dims[0], dims[1])
+
+    total = sig_beg_to_adj_ground.sum(dim="rec_bin")
+    cumsum = sig_beg_to_adj_ground.cumsum(dim="rec_bin")
+    target = total * percentile / 100.0
+
+    return ds.rec_wf_sample_dist.where(cumsum > target).max(dim="rec_bin")
+
+
+def get_percentile_canopy_dist(ds, percentile):
+    """
+    the height at which 10% of the waveform energy from 0.5 m above the ground peak
+    to signal beginning has been reached
+    """
+    from carbonplan_trace.v1.glas_preprocess import select_valid_area  # avoid circular import
+
+    ds = get_dist_metric_value(ds, metric='bottom_of_canopy_dist')
+
+    # the processed wf is from sig beg to sig end, select sig beg to ground peak
+    canopy = select_valid_area(
+        bins=ds.rec_wf_sample_dist,
+        wf=ds.processed_wf,
+        signal_begin_dist=ds.sig_begin_dist,
+        signal_end_dist=ds.bottom_of_canopy_dist,
+    )
+
+    # make sure dimensions matches up
+    dims = ds.processed_wf.dims
+    canopy = canopy.transpose(dims[0], dims[1])
+
+    total = canopy.sum(dim="rec_bin")
+    cumsum = canopy.cumsum(dim="rec_bin")
+    target = total * percentile / 100.0
+
+    return ds.rec_wf_sample_dist.where(cumsum > target).max(dim="rec_bin")
+
+
 def get_ground_peak_dist(ds):
     """
     the lowest of gaussian fit peaks from GLAH14
     """
     # lowest elevation = largest distance
     return ds.gaussian_fit_dist.max(dim="n_gaussian_peaks")
+
+
+def get_first_peak_dist(ds):
+    """
+    the peak closest to satellite from GLAH14
+    """
+    # closet to satellite = smallest distance
+    return ds.gaussian_fit_dist.min(dim="n_gaussian_peaks")
 
 
 def get_ground_peak_dist_Sun(ds, buffer=1):
@@ -310,26 +464,65 @@ def get_adj_ground_peak_dist(ds):
     return ds.gaussian_fit_dist.isel(n_gaussian_peaks=loc)
 
 
+def get_bottom_of_canopy_dist(ds):
+    """
+    0.5 m above the ground peak. Ground peak defined as whichever of the two lowest peaks has greater amplitude
+    """
+    ds = get_dist_metric_value(ds, metric='adj_ground_peak_dist')
+
+    return ds.adj_ground_peak_dist - 0.5
+
+
 def get_quadratic_mean_dist(ds):
     """
     From Neigh et al 2013: quadratic mean height of the waveform, calculated as the
     square root [∑ (normalized amplitude in a given canopy height bin) × (height of bin)**2]
-    Original citation from Lefsky et al 1999
+    Original citation from Lefsky et al 1999. From signal beginning to adj ground peak.
     """
-    wf = ds.processed_wf
+    from carbonplan_trace.v1.glas_preprocess import select_valid_area  # avoid circular import
+
+    ds = get_dist_metric_value(ds, metric='adj_ground_peak_dist')
+
+    # the processed wf is from sig beg to sig end, select sig beg to ground peak
+    sig_beg_to_adj_ground = select_valid_area(
+        bins=ds.rec_wf_sample_dist,
+        wf=ds.processed_wf,
+        signal_begin_dist=ds.sig_begin_dist,
+        signal_end_dist=ds.adj_ground_peak_dist,
+    )
+
+    # make sure dimensions matches up
+    dims = ds.processed_wf.dims
+    sig_beg_to_adj_ground = sig_beg_to_adj_ground.transpose(dims[0], dims[1])
+
     bins = ds.rec_wf_sample_dist
 
-    return np.sqrt(np.square(bins).weighted(wf).mean("rec_bin"))
+    return np.sqrt(np.square(bins).weighted(sig_beg_to_adj_ground).mean("rec_bin"))
 
 
 def get_mean_dist(ds):
     """
-    Mean height of the waveform from the signal beginning to signal end
+    Mean height of the waveform from the signal beginning to adj ground peak
     """
-    wf = ds.processed_wf
+    from carbonplan_trace.v1.glas_preprocess import select_valid_area  # avoid circular import
+
+    ds = get_dist_metric_value(ds, metric='adj_ground_peak_dist')
+
+    # the processed wf is from sig beg to sig end, select sig beg to ground peak
+    sig_beg_to_adj_ground = select_valid_area(
+        bins=ds.rec_wf_sample_dist,
+        wf=ds.processed_wf,
+        signal_begin_dist=ds.sig_begin_dist,
+        signal_end_dist=ds.adj_ground_peak_dist,
+    )
+
+    # make sure dimensions matches up
+    dims = ds.processed_wf.dims
+    sig_beg_to_adj_ground = sig_beg_to_adj_ground.transpose(dims[0], dims[1])
+
     bins = ds.rec_wf_sample_dist
 
-    return bins.weighted(wf).mean("rec_bin")
+    return bins.weighted(sig_beg_to_adj_ground).mean("rec_bin")
 
 
 # TODO: change the next set of functions to take in pct as a param and avoid repeating
@@ -353,12 +546,12 @@ def get_30th_pct_dist(ds):
     return get_percentile_dist(ds, 30)
 
 
+def get_40th_pct_dist(ds):
+    return get_percentile_dist(ds, 40)
+
+
 def get_50th_pct_dist(ds):
     return get_percentile_dist(ds, 50)
-
-
-def get_60th_pct_dist(ds):
-    return get_percentile_dist(ds, 60)
 
 
 def get_75th_pct_dist(ds):
@@ -371,6 +564,46 @@ def get_80th_pct_dist(ds):
 
 def get_90th_pct_dist(ds):
     return get_percentile_dist(ds, 90)
+
+
+def get_pct_10_of_sig_beg_and_adj_ground_dist(ds):
+    return get_percentile_of_sig_beg_and_adj_ground_dist(ds, 10)
+
+
+def get_pct_80_of_sig_beg_and_adj_ground_dist(ds):
+    return get_percentile_of_sig_beg_and_adj_ground_dist(ds, 80)
+
+
+def get_pct_90_of_sig_beg_and_adj_ground_dist(ds):
+    return get_percentile_of_sig_beg_and_adj_ground_dist(ds, 90)
+
+
+def get_pct_05_canopy_dist(ds):
+    return get_percentile_canopy_dist(ds, 5)
+
+
+def get_pct_10_canopy_dist(ds):
+    return get_percentile_canopy_dist(ds, 10)
+
+
+def get_pct_20_canopy_dist(ds):
+    return get_percentile_canopy_dist(ds, 20)
+
+
+def get_pct_30_canopy_dist(ds):
+    return get_percentile_canopy_dist(ds, 30)
+
+
+def get_pct_50_canopy_dist(ds):
+    return get_percentile_canopy_dist(ds, 50)
+
+
+def get_pct_75_canopy_dist(ds):
+    return get_percentile_canopy_dist(ds, 75)
+
+
+def get_pct_80_canopy_dist(ds):
+    return get_percentile_canopy_dist(ds, 80)
 
 
 def get_wf_max_e_dist(ds):
@@ -467,37 +700,37 @@ def number_of_peaks(ds):
 def proportion_35_to_40m(ds):
     """
     Proportion of the waveform energy from signal beginning to ground peak that is between 35
-    and 40 meters in height. Ground peak assumed to be the last peak.
+    and 40 meters in height. Ground peak defined as whichever of the two lowest peaks has greater amplitude.
     """
     from carbonplan_trace.v1.glas_preprocess import select_valid_area  # avoid circular import
 
-    ds = get_dist_metric_value(ds, metric='ground_peak_dist')
+    ds = get_dist_metric_value(ds, metric='adj_ground_peak_dist')
 
     # the processed wf is from sig beg to sig end, select sig beg to ground peak
     sig_beg_to_ground = select_valid_area(
         bins=ds.rec_wf_sample_dist,
         wf=ds.processed_wf,
         signal_begin_dist=ds.sig_begin_dist,
-        signal_end_dist=ds.ground_peak_dist,
+        signal_end_dist=ds.adj_ground_peak_dist,
     )
 
     # then select 35 to 40m
     ht_35_to_40m = select_valid_area(
         bins=ds.rec_wf_sample_dist,
         wf=ds.processed_wf,
-        signal_begin_dist=ds.ground_peak_dist - 40.0,
-        signal_end_dist=ds.ground_peak_dist - 35.0,
+        signal_begin_dist=ds.adj_ground_peak_dist - 40.0,
+        signal_end_dist=ds.adj_ground_peak_dist - 35.0,
     )
 
     # make sure dimensions matches up
     dims = ds.processed_wf.dims
-    sig_beg_to_ground = sig_beg_to_ground.transpose(dims[0], dims[1], dims[2])
-    ht_35_to_40m = ht_35_to_40m.transpose(dims[0], dims[1], dims[2])
+    sig_beg_to_ground = sig_beg_to_ground.transpose(dims[0], dims[1])
+    ht_35_to_40m = ht_35_to_40m.transpose(dims[0], dims[1])
 
     return ht_35_to_40m.sum(dim="rec_bin") / sig_beg_to_ground.sum(dim="rec_bin")
 
 
-def proportion_sig_beg_to_ground(ds):
+def proportion_sig_beg_to_start_of_ground(ds):
     """
     The total energy from signal beginning to the start of the ground peak,
     normalized by total energy of the waveform. Ground peak assumed to be the last peak.
@@ -516,7 +749,7 @@ def proportion_sig_beg_to_ground(ds):
 
     # make sure dimensions matches up
     dims = ds.processed_wf.dims
-    sig_beg_to_ground = sig_beg_to_ground.transpose(dims[0], dims[1], dims[2])
+    sig_beg_to_ground = sig_beg_to_ground.transpose(dims[0], dims[1])
 
     # total energy of the smoothed waveform
     total = ds.processed_wf.sum(dim="rec_bin")
@@ -545,10 +778,37 @@ def pct_canopy_cover(ds, cutoff_height=1.0):
 
     # make sure dimensions matches up
     dims = ds.processed_wf.dims
-    vegetation_returns = vegetation_returns.transpose(dims[0], dims[1], dims[2])
+    vegetation_returns = vegetation_returns.transpose(dims[0], dims[1])
 
     # normalized by the total energy between signal beginning and end
     return vegetation_returns.sum(dim="rec_bin") / ds.processed_wf.sum(dim="rec_bin") * 100
+
+
+def energy_adj_ground_to_sig_end(ds):
+    """
+    Waveform energy from the ground peak.  We calculated senergy_whrc as the energy of the waveform (in digital counts) from the ground peak
+    to the signal end multiplied by two. Ground peak defined as whichever of the two lowest peaks has greater amplitude. We then applied the
+    following linear transformation in order to calculate on the same scale as data published by Margolis et al. (2015)
+    senergy = -4.397006 + 0.006208 * senergy_whrc
+    """
+    from carbonplan_trace.v1.glas_preprocess import select_valid_area  # avoid circular import
+
+    ds = get_dist_metric_value(ds, metric='adj_ground_peak_dist')
+    # the processed wf is from sig beg to sig end, select adj ground peak to sig end instead
+    ground_energy = select_valid_area(
+        bins=ds.rec_wf_sample_dist,
+        wf=ds.processed_wf,
+        signal_begin_dist=ds.adj_ground_peak_dist,
+        signal_end_dist=ds.sig_end_dist,
+    )
+
+    # make sure dimensions matches up
+    dims = ds.processed_wf.dims
+    ground_energy = ground_energy.transpose(dims[0], dims[1])
+
+    senergy_whrc = ground_energy.sum(dim="rec_bin") * 2
+
+    return -4.397006 + 0.006208 * senergy_whrc
 
 
 def all_zero_variable(ds, template_var='sig_begin_dist'):
@@ -557,8 +817,8 @@ def all_zero_variable(ds, template_var='sig_begin_dist'):
     """
     return xr.DataArray(
         0,
-        dims=["record_index", "shot_number"],
-        coords=[ds[template_var].coords["record_index"], ds[template_var].coords["shot_number"]],
+        dims=["unique_index"],
+        coords=[ds[template_var].coords["unique_index"]],
     )
 
 
@@ -666,6 +926,7 @@ DISTANCE_METRICS_MAP = {
     "centroid_dist": get_centroid_dist,
     "gaussian_fit_dist": get_gaussian_fit_dist,
     "ground_peak_dist": get_ground_peak_dist,
+    "first_peak_dist": get_first_peak_dist,
     "adj_ground_peak_dist": get_adj_ground_peak_dist,
     "quadratic_mean_dist": get_quadratic_mean_dist,
     "mean_dist": get_mean_dist,
@@ -674,8 +935,8 @@ DISTANCE_METRICS_MAP = {
     "pct_20_dist": get_20th_pct_dist,
     "pct_25_dist": get_25th_pct_dist,
     "pct_30_dist": get_30th_pct_dist,
+    "pct_40_dist": get_40th_pct_dist,
     "pct_50_dist": get_50th_pct_dist,
-    "pct_60_dist": get_60th_pct_dist,
     "pct_75_dist": get_75th_pct_dist,
     "pct_80_dist": get_80th_pct_dist,
     "pct_90_dist": get_90th_pct_dist,
@@ -683,6 +944,17 @@ DISTANCE_METRICS_MAP = {
     "start_of_ground_peak_dist": get_start_of_ground_peak_dist,
     "leading_edge_dist": get_leading_edge_dist,
     "trailing_edge_dist": get_trailing_edge_dist,
+    "pct_10_of_sig_beg_and_adj_ground_dist": get_pct_10_of_sig_beg_and_adj_ground_dist,
+    "pct_80_of_sig_beg_and_adj_ground_dist": get_pct_80_of_sig_beg_and_adj_ground_dist,
+    "pct_90_of_sig_beg_and_adj_ground_dist": get_pct_90_of_sig_beg_and_adj_ground_dist,
+    "bottom_of_canopy_dist": get_bottom_of_canopy_dist,
+    "pct_05_canopy_dist": get_pct_05_canopy_dist,
+    "pct_10_canopy_dist": get_pct_10_canopy_dist,
+    "pct_20_canopy_dist": get_pct_20_canopy_dist,
+    "pct_30_canopy_dist": get_pct_30_canopy_dist,
+    "pct_50_canopy_dist": get_pct_50_canopy_dist,
+    "pct_75_canopy_dist": get_pct_75_canopy_dist,
+    "pct_80_canopy_dist": get_pct_80_canopy_dist,
 }
 
 
@@ -697,6 +969,24 @@ def get_dist_metric_value(ds, metric):
     return ds
 
 
+def get_height_metric_value(ds, metric):
+    if metric not in ds and metric in HEIGHT_METRICS_MAP:
+        ds[metric] = HEIGHT_METRICS_MAP[metric](ds)
+    elif metric not in ds:
+        raise NotImplementedError(
+            f'Metric {metric} not found in dataset and not included in HEIGHT_METRICS_MAP for calculation'
+        )
+
+    return ds
+
+
+def get_all_height_metrics(ds, metrics):
+    for metric in metrics:
+        ds = get_height_metric_value(ds, metric)
+
+    return ds
+
+
 def get_heights_from_distance(ds, top_metric, bottom_metric):
     # check if the metric is in input ds, recalculate if not
     for metric in [top_metric, bottom_metric]:
@@ -707,17 +997,22 @@ def get_heights_from_distance(ds, top_metric, bottom_metric):
 
 
 HEIGHT_METRICS_MAP = {
-    "HEIGHT2": sig_beg_to_ground_ht,
-    "ht_adjusted": sig_beg_to_adj_ground_ht,
-    "QMCH": quadratic_mean_to_ground_ht,
-    "MeanH": mean_to_ground_ht,
-    "HOME": median_to_sig_end_ht,
+    "VH": sig_beg_to_ground_ht,
+    "H10_Baccini": pct_10_from_sig_beg_to_sig_end_ht,
+    "H25_Baccini": pct_25_from_sig_beg_to_sig_end_ht,
+    "H60_Baccini": pct_60_from_sig_beg_to_sig_end_ht,
+    "CANOPY_DEP": sig_beg_to_start_of_ground_peak_ht,
+    "CANOPY_ENE": proportion_sig_beg_to_start_of_ground,
+    "ht_adjusted": first_peak_to_adj_ground_ht,
+    "QMCH": quadratic_mean_to_adj_ground_ht,
+    "MeanH": mean_to_adj_ground_ht,
+    "HOME_Baccini": pct_50_to_sig_end_ht,
     "HOME_Yavasli": centroid_to_adj_ground_ht,
     "pct_HOME_Yavasli": ratio_centroid_to_max_ht,
-    "h25_Neigh": pct_25_to_ground_ht,
-    "h50_Neigh": pct_50_to_ground_ht,
-    "h75_Neigh": pct_75_to_ground_ht,
-    "h90_Neigh": pct_90_to_ground_ht,
+    "h25_Neigh": pct_25_to_adj_ground_ht,
+    "h50_Neigh": pct_50_to_adj_ground_ht,
+    "h75_Neigh": pct_75_to_adj_ground_ht,
+    "h90_Neigh": pct_90_to_adj_ground_ht,
     "h05_Nelson": pct_05_to_sig_end_ht,
     "h10_Nelson": pct_10_to_sig_end_ht,
     "h20_Nelson": pct_20_to_sig_end_ht,
@@ -727,27 +1022,32 @@ HEIGHT_METRICS_MAP = {
     "h75_Nelson": pct_75_to_sig_end_ht,
     "h80_Nelson": pct_80_to_sig_end_ht,
     "h90_Nelson": pct_90_to_sig_end_ht,
-    # TODO: confirm whether the Baccini metrics are different in terms of ground reference
-    "H10_Baccini": pct_10_to_sig_end_ht,
-    "H25_Baccini": pct_25_to_sig_end_ht,
-    "H60_Baccini": pct_60_to_sig_end_ht,
+    "h10_p12": pct_10_of_sig_beg_and_adj_ground_to_adj_ground_ht,
+    "h80_p12": pct_80_of_sig_beg_and_adj_ground_to_adj_ground_ht,
+    "h90_p12": pct_90_of_sig_beg_and_adj_ground_to_adj_ground_ht,
+    "h05_canopy": pct_05_canopy_ht,
+    "h10_canopy": pct_10_canopy_ht,
+    "h20_canopy": pct_20_canopy_ht,
+    "h30_canopy": pct_30_canopy_ht,
+    "h50_canopy": pct_50_canopy_ht,
+    "h75_canopy": pct_75_canopy_ht,
+    "h80_canopy": pct_80_canopy_ht,
     "f_slope": front_slope_to_surface_energy_ratio,
+    "senergy": energy_adj_ground_to_sig_end,
     "trail_Nelson": ground_to_sig_end_ht,
     "lead_Nelson": start_to_centroid_ground_ht,
-    "wf_max_e": highest_energy_value,
-    "wf_variance": wf_variance,
-    "wf_skew": wf_skew,
-    "startpeak": sig_beg_to_highest_energy_ht,
-    "wf_n_gs": number_of_peaks,
     "Height_35_to_40": proportion_35_to_40m,
-    "CANOPY_DEP": sig_beg_to_start_of_ground_peak_ht,
-    "CANOPY_ENE": proportion_sig_beg_to_ground,
-    "treecover2000_mean": pct_canopy_cover,  # TODO: double check the other two papers
+    "treecover2000_mean": pct_canopy_cover,  # TODO: use additional dataset instead
     "acq3_Neigh": all_zero_variable,
     "acq2_Nelson": all_zero_variable,
     "acq3_Nelson": all_zero_variable,
     "ct2_Nelson": all_zero_variable,
-    "terrain_1": terrain_relief_class_1,
-    "terrain_2": terrain_relief_class_2,
-    "terrain_3": terrain_relief_class_3,
+    # "wf_max_e": highest_energy_value,
+    # "wf_variance": wf_variance,
+    # "wf_skew": wf_skew,
+    # "startpeak": sig_beg_to_highest_energy_ht,
+    # "wf_n_gs": number_of_peaks,
+    # "terrain_1": terrain_relief_class_1,
+    # "terrain_2": terrain_relief_class_2,
+    # "terrain_3": terrain_relief_class_3,
 }
