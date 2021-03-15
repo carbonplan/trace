@@ -76,7 +76,7 @@ def get_mask(ds):
     # all non nulls in the GLAH14 dataset
     mask = ~ds.lat.isnull()
     mask.name = 'mask'
-    m1 = 100.0 - mask.mean() * 100.0
+    m1 = 100.0 - mask.mean().values * 100.0
     print(f'filtering out {m1}% of records due to null GLAH14 data')
 
     # Harris et al 2021 filtering conditions listed in Supplementary Information
@@ -98,7 +98,7 @@ def get_mask(ds):
         & (ds.trailing_edge_extent <= (ds.wf_extent * 0.35))
     )
 
-    m2 = 100.0 - mask.mean() * 100.0
+    m2 = 100.0 - mask.mean().values * 100.0
     print(f'filtering out {m2-m1}% of records due to additional filtering by Harris et al')
 
     return mask
