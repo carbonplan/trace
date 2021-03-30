@@ -80,13 +80,14 @@ def get_mask(ds):
     print(f'filtering out {m1}% of records due to null GLAH14 data')
 
     # Harris et al 2021 filtering conditions listed in Supplementary Information
+    ds['glas_elev'] = ds.elevation + ds.elevation_correction
     mask = (
         mask
         & (ds.num_gaussian_peaks >= 2)  # have at least two peaks
         # max amplitude of waveform greater than 2x baseline noise
         & (ds.rec_wf.max(dim='rec_bin') >= (ds.noise_mean * 2))
         # discrepancy bt SRTM and GLAS derived elevation less than 30m
-        & (abs(ds.elevation_SRTM - (ds.elevation + ds.elevation_correction)) <= 30)
+        & (abs(ds.elevation_SRTM.fillna(ds.glas_elev) - ds.glas_elev) <= 30)
         # signal beginning is less than 70m (otherwise indicates potential inference of signal)
         & (abs(ds.ground_peak_dist - ds.sig_begin_dist) <= 70)
         # signal end is less than 20 and greater than 1m (otherwise indicates sig end is improperly captured)

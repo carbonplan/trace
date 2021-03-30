@@ -1037,7 +1037,6 @@ HEIGHT_METRICS_MAP = {
     "trail_Nelson": ground_to_sig_end_ht,
     "lead_Nelson": start_to_centroid_ground_ht,
     "Height_35_to_40": proportion_35_to_40m,
-    "treecover2000_mean": pct_canopy_cover,  # TODO: use additional dataset instead
     "acq3_Neigh": all_zero_variable,
     "acq2_Nelson": all_zero_variable,
     "acq3_Nelson": all_zero_variable,
