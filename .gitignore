@@ -136,3 +136,6 @@ dmypy.json
 # web
 .next
 node_modules
+__pycache__
+dask-worker-space
+.eggs
