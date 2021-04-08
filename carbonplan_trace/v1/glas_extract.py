@@ -31,8 +31,9 @@ def read_1d_variables(file_handle, mapping, unique_index, replace_fill_values_wi
             print(
                 f'Found {(temp > NAN_THRESHOLD).sum()} values greater than threshold of {NAN_THRESHOLD} in variable {k}, replacing with np.nan'
             )
-            temp.dtype = float
+            temp = temp * 1.0
             temp[(temp > NAN_THRESHOLD)] = np.nan
+
         ds[k] = xr.DataArray(temp, dims=["unique_index"], coords={"unique_index": unique_index})
 
     return xr.Dataset(ds)
@@ -68,7 +69,7 @@ def extract_GLAH01_data(filename, replace_fill_values_with_nulls=True):
         file_handle=f,
         mapping=name_map,
         unique_index=df.unique_index.values,
-        replace_fill_values_with_nulls=False,
+        replace_fill_values_with_nulls=replace_fill_values_with_nulls,
     )
 
     # read the 2D variables we want
@@ -99,8 +100,13 @@ def extract_GLAH01_data(filename, replace_fill_values_with_nulls=True):
     )
 
     # store a copy of the sample location for each unique shot
+    # value 127 is the largest for int8 and represents a null in this field
+    null_loc = ds.rec_wf_location_ind == 127
+    ind = xr.where(null_loc, 0, ds.rec_wf_location_ind - 1)
+    loc = rec_wf_sample_loc[ind]
+    loc[null_loc] = np.nan
     ds["rec_wf_sample_loc"] = xr.DataArray(
-        rec_wf_sample_loc[ds.rec_wf_location_ind - 1],
+        loc,
         dims=["unique_index", "rec_bin"],
         coords=[df.unique_index.values, np.arange(rec_wf.shape[1])],
     )
