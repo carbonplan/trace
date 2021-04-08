@@ -131,6 +131,10 @@ def extract_GLAH14_data(filename, replace_fill_values_with_nulls=True):
         "elevation": "Data_40HZ/Elevation_Surfaces/d_elev",  # meters
         "elevation_correction": "Data_40HZ/Elevation_Corrections/d_satElevCorr",  # should be added to elevation
         "elevation_SRTM": "Data_40HZ/Geophysical/d_DEM_elv",  # Elevation at the footprint location from the SRTM30 (GTOPO30 + SRTM) Digital Elevation Model (DEM).
+        "delta_ellipse": "Data_40HZ/Geophysical/d_deltaEllip",
+        "geoid": "Data_40HZ/Geophysical/d_gdHt",
+        "elv_cloud_flg": "Data_40HZ/Elevation_Flags/elv_cloud_flg",
+        "elev_use_flg": "Data_40HZ/Quality/elev_use_flg",
         # Range in distance calculated from the time between the centroid of the transmit pulse and the farthest gate from the spacecraft of the received pulse. See the rngcorrflg to determine
         # any corrections that have been applied. unit is meters and values in the 600k range
         "ref_range": "Data_40HZ/Elevation_Surfaces/d_refRng",  # meters

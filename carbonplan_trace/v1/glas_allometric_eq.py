@@ -5,6 +5,7 @@ import numpy as np
 import xarray as xr
 from gcsfs import GCSFileSystem
 
+from carbonplan_trace.v0.data import cat
 from carbonplan_trace.v1.glas_height_metrics import HEIGHT_METRICS_MAP, get_all_height_metrics
 
 ECOREGIONS_GROUPINGS = {
@@ -542,21 +543,29 @@ def get_list_of_mask_tiles():
     """
     fs = GCSFileSystem(cache_timeout=0)
 
-    folder = 'gs://carbonplan-scratch/trace_scratch/ecoregions_mask/'
+    folder = 'gs://carbonplan-climatetrace/intermediates/ecoregions_mask/'
     # fs.ls includes the parent folder itself, skip that link
     paths = [tp for tp in fs.ls(folder) if not tp.endswith('/')]
 
     return paths
 
 
-def parse_bounding_lat_lon_for_tile(filename):
+def get_lat_lon_tags_from_tile_path(tile_path):
     """
-    file name is structured as {lat}_{lon} (e.g. 60N_080W), with the name denoting the upper left corner of
-    a 10x10 degree box
+    tile_path may be the full path including gs://, folder names, and extension
+    outputs a lat lon tag eg, (50N, 120W)
     """
-    lat = filename.split('_')[0]
-    lon = filename.split('_')[1]
+    fn = tile_path.split('/')[-1].split('.')[0]
+    lat = fn.split('_')[0]
+    lon = fn.split('_')[1]
 
+    return lat, lon
+
+
+def parse_bounding_lat_lon_for_tile(lat, lon):
+    """
+    lat lon strings denoting the upper left corner of a 10x10 degree box eg (50N, 120W)
+    """
     # the tile name denotes the upper left corner of each tile
     if lat.endswith('N'):
         max_lat = float(lat[:-1])
@@ -582,9 +591,7 @@ def get_ecoregions_mask(path):
 
 
 def get_igbp_data():
-    igbp = xr.open_rasterio(
-        'gs://carbonplan-scratch/trace_scratch/IGBP.tif', parse_coordinates=True
-    )
+    igbp = xr.open_rasterio('gs://carbonplan-climatetrace/inputs/IGBP.tif', parse_coordinates=True)
     igbp = igbp.squeeze(dim='band', drop=True)
     igbp = igbp.rename(x='lon', y='lat')
 
@@ -597,8 +604,8 @@ def subset_data_for_tile(data, tile_path):
     The function assumes that lat/lon are not coordinates in the data
     """
     # grab the file name without folder and extension
-    fn = tile_path.split('/')[-1].split('.')[0]
-    min_lat, max_lat, min_lon, max_lon = parse_bounding_lat_lon_for_tile(fn)
+    lat, lon = get_lat_lon_tags_from_tile_path(tile_path)
+    min_lat, max_lat, min_lon, max_lon = parse_bounding_lat_lon_for_tile(lat, lon)
     sub = data.where(
         (data.lat > min_lat) & (data.lat <= max_lat) & (data.lon > min_lon) & (data.lon <= max_lon),
         drop=True,
@@ -644,6 +651,21 @@ def assign_ecoregion_values(ds, tile_path):
     ds = find_ecoregions_values(ds, ecoregions_mask)
 
     return ds
+
+
+def assign_treecover_values(data, tile_path):
+    lat, lon = get_lat_lon_tags_from_tile_path(tile_path)
+
+    # get Hansen data
+    hansen = cat.hansen_2018(variable='treecover2000', lat=lat, lon=lon).to_dask()
+    hansen = hansen.rename({"x": "lon", "y": "lat"}).squeeze(drop=True)
+
+    hansen_records = hansen.sel(lat=data.lat, lon=data.lon, method="nearest")
+    assert (data.unique_index == hansen.unique_index).mean() == 1
+    hansen_records = hansen_records.drop_vars(['lat', 'lon'])
+    data['treecover2000_mean'] = hansen_records['treecover2000']
+
+    return data
 
 
 def assign_allometric_eq(ds):
@@ -874,8 +896,9 @@ def apply_allometric_equation(ds, tile_path):
     Given a dataset containing GLAS records, assign allometric equation based on appropriate info,
     then apply the allometric equation with respective height metrics to get biomass
     """
-    # assign ecoregions
+    # assign ecoregions and canopy cover data
     ds = assign_ecoregion_values(ds, tile_path)
+    ds = assign_treecover_values(ds, tile_path)
 
     # assign allometric eq
     ds["allometric_eq"] = assign_allometric_eq(ds)
