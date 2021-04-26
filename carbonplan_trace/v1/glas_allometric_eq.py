@@ -1,10 +1,10 @@
 from datetime import datetime, timezone
 
-import fsspec
 import numpy as np
 import xarray as xr
-from gcsfs import GCSFileSystem
 
+import carbonplan_trace.v1.utils as utils
+from carbonplan_trace.v0.data import cat
 from carbonplan_trace.v1.glas_height_metrics import HEIGHT_METRICS_MAP, get_all_height_metrics
 
 ECOREGIONS_GROUPINGS = {
@@ -247,6 +247,12 @@ def canada_mixedwood(ds):
     return 4.11 * ds['QMCH'] + 2.26 * ds['VH'] - 2.50 * ds['h25_Neigh'] + 20.61
 
 
+def w_canada_burned(ds):
+    required_metrics = ['QMCH', 'ht_adjusted', 'acq3_Neigh']
+    ds = get_all_height_metrics(ds, required_metrics)
+    return 5.46 * ds['QMCH'] + 4.07 * ds['ht_adjusted'] + 22.77 * ds['acq3_Neigh'] + 5.05
+
+
 def e_canada_wetland_steep(ds):
     required_metrics = ['VH', 'f_slope']
     ds = get_all_height_metrics(ds, required_metrics)
@@ -269,6 +275,12 @@ def e_canada_mixedwood_high(ds):
     required_metrics = ['VH', 'senergy', 'h25_Neigh']
     ds = get_all_height_metrics(ds, required_metrics)
     return 5.74 * ds['VH'] - 0.92 * ds['senergy'] - 5.01 * ds['h25_Neigh'] + 14.63
+
+
+def e_canada_burned(ds):
+    required_metrics = ['QMCH', 'ht_adjusted', 'acq3_Neigh']
+    ds = get_all_height_metrics(ds, required_metrics)
+    return 5.46 * ds['QMCH'] + 4.07 * ds['ht_adjusted'] + 22.76 * ds['acq3_Neigh'] + 5.05
 
 
 def conus_wetland(ds):
@@ -294,6 +306,12 @@ def conus_mixedwood(ds):
     )
 
 
+def conus_burned(ds):
+    required_metrics = ['h90_Nelson', 'h75_Nelson']
+    ds = get_all_height_metrics(ds, required_metrics)
+    return 4.331 * ds['h90_Nelson'] - 4.222 * ds['h75_Nelson']
+
+
 def zero_biomass(ds):
     return xr.DataArray(
         0,
@@ -303,13 +321,26 @@ def zero_biomass(ds):
 
 
 def mexico_north(ds):
-    required_metrics = ['h25_Nelson', 'h90_Nelson', 'acq3_Nelson', 'ct2_Nelson']
+    required_metrics = ['h25_Nelson', 'h90_Nelson', 'acq3_Nelson']
     ds = get_all_height_metrics(ds, required_metrics)
+    conifer_ind = 0
     return (
         -3.364 * ds['h25_Nelson']
         + 3.210 * ds['h90_Nelson']
         + 21.612 * ds['acq3_Nelson']
-        + 18.778 * ds['ct2_Nelson']
+        + 18.778 * conifer_ind
+    )
+
+
+def mexico_north_conifer(ds):
+    required_metrics = ['h25_Nelson', 'h90_Nelson', 'acq3_Nelson']
+    ds = get_all_height_metrics(ds, required_metrics)
+    conifer_ind = 1
+    return (
+        -3.364 * ds['h25_Nelson']
+        + 3.210 * ds['h90_Nelson']
+        + 21.612 * ds['acq3_Nelson']
+        + 18.778 * conifer_ind
     )
 
 
@@ -334,7 +365,8 @@ def conus_conifer_neigh_2013(ds):
 def conus_conifer_lu_2012(ds):
     required_metrics = ['QMCH', 'Height_35_to_40']
     ds = get_all_height_metrics(ds, required_metrics)
-    return np.exp((2.10 + 1.56 * np.log(ds['QMCH'])) + (0.05 + np.log(ds['Height_35_to_40'])))
+    ln_biomass = 2.10 + 1.56 * np.log(ds['QMCH']) + 0.05 * np.log(ds['Height_35_to_40'])
+    return np.exp(ln_biomass)
 
 
 def conus_conifer_hudak_2012(ds):
@@ -490,21 +522,26 @@ ALLOMETRIC_EQUATIONS_MAP = {
     'ak_hardwood': w_canada_hardwood,
     'ak_conifer': ak_conifer,
     'ak_mixedwood': ak_mixedwood,
+    'ak_burned': w_canada_burned,
     'w_canada_wetland': boreal_wetland,
     'w_canada_hardwood': w_canada_hardwood,
     'w_canada_conifer': w_canada_conifer,
     'w_canada_mixedwood': canada_mixedwood,
+    'w_canada_burned': w_canada_burned,
     'e_canada_wetland_steep': e_canada_wetland_steep,
     'e_canada_wetland_flat': boreal_wetland,
     'e_canada_hardwood': e_canada_hardwood,
     'e_canada_conifer': e_canada_conifer,
     'e_canada_mixedwood_high': e_canada_mixedwood_high,
     'e_canada_mixedwood_low': canada_mixedwood,
+    'e_canada_burned': e_canada_burned,
     'conus_wetland': conus_wetland,
     'conus_hardwood': conus_hardwood,
     'conus_mixedwood': conus_mixedwood,
+    'conus_burned': conus_burned,
     'zero_biomass': zero_biomass,
     'mexico_north': mexico_north,
+    'mexico_north_conifer': mexico_north_conifer,
     'mexico_south': mexico_south,
     'conus_conifer_nelson_2017': conus_mixedwood,
     'conus_conifer_tsui_2012': conus_conifer_tsui_2012,
@@ -536,114 +573,82 @@ ALLOMETRIC_EQUATIONS_MAP = {
 }
 
 
-def get_list_of_mask_tiles():
-    """
-    Ecoregions mask is stored in 10 degree tiles, grab the filepaths
-    """
-    fs = GCSFileSystem(cache_timeout=0)
-
-    folder = 'gs://carbonplan-scratch/trace_scratch/ecoregions_mask/'
-    # fs.ls includes the parent folder itself, skip that link
-    paths = [tp for tp in fs.ls(folder) if not tp.endswith('/')]
-
-    return paths
-
-
-def parse_bounding_lat_lon_for_tile(filename):
-    """
-    file name is structured as {lat}_{lon} (e.g. 60N_080W), with the name denoting the upper left corner of
-    a 10x10 degree box
-    """
-    lat = filename.split('_')[0]
-    lon = filename.split('_')[1]
-
-    # the tile name denotes the upper left corner of each tile
-    if lat.endswith('N'):
-        max_lat = float(lat[:-1])
-    elif lat.endswith('S'):
-        max_lat = -1 * float(lat[:-1])
-    # each tile covers 10 degree x 10 degree
-    min_lat = max_lat - 10
-
-    if lon.endswith('E'):
-        min_lon = float(lon[:-1])
-    elif lon.endswith('W'):
-        min_lon = -1 * float(lon[:-1])
-    max_lon = min_lon + 10
-
-    return min_lat, max_lat, min_lon, max_lon
-
-
-def get_ecoregions_mask(path):
-    if not path.startswith('gs://'):
-        path = 'gs://' + path
-    mapper = fsspec.get_mapper(path)
-    return xr.open_zarr(mapper)
-
-
-def get_igbp_data():
-    igbp = xr.open_rasterio(
-        'gs://carbonplan-scratch/trace_scratch/IGBP.tif', parse_coordinates=True
-    )
-    igbp = igbp.squeeze(dim='band', drop=True)
-    igbp = igbp.rename(x='lon', y='lat')
-
-    return igbp
-
-
-def subset_data_for_tile(data, tile_path):
-    """
-    Return a subset of data within the bounding lat/lon box of target tile
-    The function assumes that lat/lon are not coordinates in the data
-    """
-    # grab the file name without folder and extension
-    fn = tile_path.split('/')[-1].split('.')[0]
-    min_lat, max_lat, min_lon, max_lon = parse_bounding_lat_lon_for_tile(fn)
-    sub = data.where(
-        (data.lat > min_lat) & (data.lat <= max_lat) & (data.lon > min_lon) & (data.lon <= max_lon),
-        drop=True,
-    )
-    return sub
-
-
-def find_ecoregions_values(data, ecoregions):
-    # ecoregions map contains Ecoregions2017, NLCD, and EOSD data
-    eco_records = ecoregions.sel(lat=data.lat, lon=data.lon, method="nearest")
-    assert (data.unique_index == eco_records.unique_index).mean() == 1
-    eco_records = eco_records.drop_vars(['lat', 'lon'])
-    for v in eco_records:
-        data[v] = eco_records[v]
-        print(f'Got {v} data')
-
-    # 0 and 241 are both null values for nlcd
-    data['nlcd'] = xr.where(data.nlcd.isin([0, 241]), x=np.nan, y=data.nlcd)
-
-    # read IGBP data and assign those values to each record as well
-    igbp = get_igbp_data()
-    igbp_records = igbp.sel(lat=data.lat, lon=data.lon, method="nearest")
-    assert (data.unique_index == igbp_records.unique_index).mean() == 1
-    igbp_records = igbp_records.drop_vars(['lat', 'lon'])
-    data['igbp'] = igbp_records
-
-    return data
-
-
-def assign_ecoregion_values(ds, tile_path):
+def assign_ecoregion_values(data, tiles):
     """
     Given a dataset with lat, lon, assign the correct ecoregions values for each record
     """
     # error out if lat lon are not in dataset
     for v in ['lat', 'lon']:
-        if v not in ds:
+        if v not in data:
             raise KeyError(f'required variable {v} not found in input data')
 
-    # load mask
-    ecoregions_mask = get_ecoregions_mask(tile_path)
+    # load ecoregions map
+    # ecoregions map contains Ecoregions2017, NLCD, and EOSD data
+    ecoregions_mask = utils.open_ecoregion_data(tiles)
+    eco_records = utils.find_matching_records(data=ecoregions_mask, lats=data.lat, lons=data.lon)
+    assert (data.unique_index == eco_records.unique_index).mean() == 1
+    for v in eco_records:
+        data[v] = eco_records[v]
+    del ecoregions_mask
 
-    # find the closest matching cell for each record
-    ds = find_ecoregions_values(ds, ecoregions_mask)
+    # NLCD and EOSD data only cover parts of the globe, set the rest to nan
+    for metric in ['nlcd', 'eosd']:
+        if metric not in data:
+            data[metric] = xr.DataArray(
+                np.nan,
+                dims=["unique_index"],
+                coords=[data['lat'].coords["unique_index"]],
+            )
 
-    return ds
+    # 0 and 241 are both null values for nlcd
+    data['nlcd'] = xr.where(data.nlcd.isin([0, 241]), x=np.nan, y=data.nlcd)
+
+    # read IGBP data and assign those values to each record as well
+    igbp = utils.open_igbp_data(tiles)
+    igbp_records = utils.find_matching_records(
+        data=igbp, lats=data.lat, lons=data.lon, years=data.datetime.dt.year
+    )
+    assert (data.unique_index == igbp_records.unique_index).mean() == 1
+    data['igbp'] = igbp_records.igbp
+    del igbp
+
+    return data
+
+
+def assign_treecover_values(data, tiles):
+    hansen = []
+    for tile in tiles:
+        lat, lon = utils.get_lat_lon_tags_from_tile_path(tile)
+        # get Hansen data
+        hansen_tile = cat.hansen_2018(variable='treecover2000', lat=lat, lon=lon).to_dask()
+        hansen_tile = hansen_tile.rename({"x": "lon", "y": "lat"}).squeeze(drop=True)
+        hansen.append(hansen_tile.to_dataset(name='treecover2000', promote_attrs=True))
+    hansen = xr.combine_by_coords(hansen, combine_attrs="drop_conflicts").chunk(
+        {'lat': 2000, 'lon': 2000}
+    )
+
+    hansen_records = utils.find_matching_records(data=hansen, lats=data.lat, lons=data.lon)
+    assert (data.unique_index == hansen_records.unique_index).mean() == 1
+    data['treecover2000_mean'] = hansen_records['treecover2000']
+
+    del hansen
+
+    return data
+
+
+def assign_burned_area_values(data, tiles):
+    burned_area = utils.open_burned_area_data(tiles)
+    burned_area_rec = utils.find_matching_records(data=burned_area, lats=data.lat, lons=data.lon)
+    assert (data.unique_index == burned_area_rec.unique_index).mean() == 1
+
+    # if the GLAS shot is burned after year 2000 but prior to year of GLAS acquisition
+    # set "burned" to True, else to False
+    year_burned = np.floor(burned_area_rec.burned_date / 1000.0)
+    data['burned'] = data.datetime.dt.year < year_burned
+
+    del burned_area
+
+    return data
 
 
 def assign_allometric_eq(ds):
@@ -653,7 +658,6 @@ def assign_allometric_eq(ds):
     # calculate f_slope and senergy if not in dataset
     for v in ['f_slope', 'senergy']:
         if v not in ds:
-            print(f'metric {v} not found in input, calculating')
             ds[v] = HEIGHT_METRICS_MAP[v](ds)
 
     output = xr.DataArray(
@@ -685,7 +689,7 @@ def assign_allometric_eq(ds):
         | ds.eosd.isin([51, 230, 231, 232, 233])
         | (ds.nlcd.isnull() & ds.eosd.isnull() & ds.igbp.isin([5, 8, 9]))
     )
-    # TODO: add burned
+    burned_mask = ds.burned
     zero_biomass_mask = (
         ds.nlcd.isin([11, 12, 21, 22, 23, 24, 31, 52, 71, 72, 73, 74, 81, 82, 95])
         | ds.eosd.isin([0, 10, 11, 12, 20, 30, 31, 32, 33, 34, 35, 36, 37, 40, 51, 52, 82, 83, 100])
@@ -703,6 +707,7 @@ def assign_allometric_eq(ds):
     output = xr.where(alaska_mask & hardwood_mask, x='ak_hardwood', y=output)
     output = xr.where(alaska_mask & conifer_mask, x='ak_conifer', y=output)
     output = xr.where(alaska_mask & mixedwood_mask, x='ak_mixedwood', y=output)
+    output = xr.where(alaska_mask & burned_mask, x='ak_burned', y=output)
     output = xr.where(alaska_mask & zero_biomass_mask, x='zero_biomass', y=output)
 
     western_canada_mask = output == 'western_canada'
@@ -710,6 +715,7 @@ def assign_allometric_eq(ds):
     output = xr.where(western_canada_mask & hardwood_mask, x='w_canada_hardwood', y=output)
     output = xr.where(western_canada_mask & conifer_mask, x='w_canada_conifer', y=output)
     output = xr.where(western_canada_mask & mixedwood_mask, x='w_canada_mixedwood', y=output)
+    output = xr.where(western_canada_mask & burned_mask, x='w_canada_burned', y=output)
     output = xr.where(western_canada_mask & zero_biomass_mask, x='zero_biomass', y=output)
 
     eastern_canada_mask = output == 'eastern_canada'
@@ -735,6 +741,7 @@ def assign_allometric_eq(ds):
         x='e_canada_mixedwood_low',
         y=output,
     )
+    output = xr.where(eastern_canada_mask & burned_mask, x='e_canada_burned', y=output)
     output = xr.where(eastern_canada_mask & zero_biomass_mask, x='zero_biomass', y=output)
 
     # process conus ecoregions
@@ -742,6 +749,7 @@ def assign_allometric_eq(ds):
     output = xr.where(conus_mask & wetland_mask, x='conus_wetland', y=output)
     output = xr.where(conus_mask & hardwood_mask, x='conus_hardwood', y=output)
     output = xr.where(conus_mask & mixedwood_mask, x='conus_mixedwood', y=output)
+    output = xr.where(conus_mask & burned_mask, x='conus_burned', y=output)
     output = xr.where(conus_mask & zero_biomass_mask, x='zero_biomass', y=output)
 
     # process conus conifer
@@ -754,6 +762,10 @@ def assign_allometric_eq(ds):
     output = xr.where(wbe_mask & conifer_or_woody_mask, x='wbe_confier', y=output)
     mixed_and_hard_wood_mask = ds.igbp.isin([0, 2, 4, 5, 6, 7, 10, 12, 13, 14, 15, 16])
     output = xr.where(wbe_mask & mixed_and_hard_wood_mask, x='wbe_mixed_hard_wood', y=output)
+
+    # split mexico_north into two equations based on confifer mask
+    mexico_north_mask = output == 'mexico_north'
+    output = xr.where(mexico_north_mask & conifer_mask, x='mexico_north_conifer', y=output)
 
     return output
 
@@ -769,7 +781,7 @@ def filter_on_time_of_year(ds):
 
     Timing of campaigns retrieved from https://icesat.gsfc.nasa.gov/icesat/missionevents.php, https://nsidc.org/data/icesat/orbit_grnd_trck.html
     """
-    print(f'{ds.dims["unique_index"]} records before filtering based on time')
+    # print(f'{ds.dims["unique_index"]} records before filtering based on time')
     # filter out campaigns 2E and 2F according to Farina et al 2018 (data after mar 1st, 2019)
     d = datetime(2009, 3, 1, 0, 0, 0, tzinfo=timezone.utc).timestamp()
     ds = ds.where(ds.time < d, drop=True)
@@ -777,10 +789,7 @@ def filter_on_time_of_year(ds):
     L1B_start = datetime(2003, 3, 20, 0, 0, 0, tzinfo=timezone.utc).timestamp()
     L1B_end = datetime(2003, 3, 29, 0, 0, 0, tzinfo=timezone.utc).timestamp()
     ds = ds.where(((ds.time < L1B_start) | (ds.time > L1B_end)), drop=True)
-    print(f'{ds.dims["unique_index"]} records aftering filtering out campaign L2E, L2F, L1B')
-
-    # get datetime object
-    ds['datetime'] = xr.apply_ufunc(datetime.fromtimestamp, ds.time, vectorize=True)
+    # print(f'{ds.dims["unique_index"]} records aftering filtering out campaign L2E, L2F, L1B')
 
     # define regions north or south of the tropics
     special_eq = ds.allometric_eq.isin(
@@ -821,7 +830,7 @@ def filter_on_time_of_year(ds):
     # if a record in: 1) in the special eq, 2) in the north, 3) not in the north leaf off (aka south leaf on) time period, drop them
     ds = ds.where(~(north & ~south_leaf_on & special_eq), drop=True)
     ds = ds.where(~(south & ~north_leaf_on & special_eq), drop=True)
-    print(f'{ds.dims["unique_index"]} records aftering filtering based on leaf on/off conditions')
+    # print(f'{ds.dims["unique_index"]} records aftering filtering based on leaf on/off conditions')
 
     return ds
 
@@ -840,12 +849,11 @@ def calculate_biomass(ds):
             missing_eq_name.append(eq_name)
 
     out = xr.concat(out, dim='unique_index')
-    if len(missing_eq_name) > 0:
-        print(
-            f'Dropping {ds.dims["unique_index"] - out.dims["unique_index"]} records out of {ds.dims["unique_index"]} due to missing equations {missing_eq_name}'
-        )
-
-    assert out.biomass.isnull().mean() == 0
+    # if len(missing_eq_name) > 0:
+    #     print(
+    #         f'Dropping {ds.dims["unique_index"] - out.dims["unique_index"]} records out of {ds.dims["unique_index"]} due to missing equations {missing_eq_name}'
+    #     )
+    # assert out.biomass.isnull().mean() == 0
 
     return out
 
@@ -853,35 +861,44 @@ def calculate_biomass(ds):
 def post_process_biomass(ds):
     ds = get_all_height_metrics(ds, metrics=['VH', 'treecover2000_mean'])
     # drop records where VH or treecover2000_mean are negative
-    mask = (ds.VH > 0) & (ds.treecover2000_mean > 0)
+    mask = (ds.VH >= 0) & (ds.treecover2000_mean >= 0)
     ds = ds.where(mask, drop=True)
-    print(
-        f'Dropping {100 - mask.mean().values * 100}% of records due to negative tree canopy metrics'
-    )
+    # print(
+    #     f'Dropping {100 - mask.mean().values * 100}% of records due to negative tree canopy metrics'
+    # )
 
     # From Farina 2018: if VH < 2, predicted biomass < 1 Mg/ha, or canopy cover < 10%, set biomass to 0
     mask = (ds.VH < 2) | (ds.biomass < 1) | (ds.treecover2000_mean < 10)
-    print(
-        f'Setting the biomass to 0 for {mask.mean().values * 100}% of records based on Harris et al procedures'
-    )
+    # print(
+    #     f'Setting the biomass to 0 for {mask.mean().values * 100}% of records based on Harris et al procedures'
+    # )
     ds['biomass'] = xr.where(mask, x=0, y=ds.biomass)
 
     return ds
 
 
-def apply_allometric_equation(ds, tile_path):
+def apply_allometric_equation(ds, min_lat, max_lat, min_lon, max_lon):
     """
     Given a dataset containing GLAS records, assign allometric equation based on appropriate info,
     then apply the allometric equation with respective height metrics to get biomass
     """
-    # assign ecoregions
-    ds = assign_ecoregion_values(ds, tile_path)
+
+    # find a list of 10x10 degree tile names covering the bounding box
+    # the ancillary data used in preprocess are stored as these 10x10 degree tiles
+    tiles = utils.find_tiles_for_bounding_box(min_lat, max_lat, min_lon, max_lon)
+
+    # assign ecoregions and canopy cover data
+    ds = assign_ecoregion_values(ds, tiles)
+    ds = assign_treecover_values(ds, tiles)
+    ds = assign_burned_area_values(ds, tiles)
 
     # assign allometric eq
     ds["allometric_eq"] = assign_allometric_eq(ds)
+    # print('before filtering on time: current time is ', time.strftime("%H:%M:%S", time.localtime()))
     ds = filter_on_time_of_year(ds)
 
     # apply allometric equations
+    # print('before biomass: current time is ', time.strftime("%H:%M:%S", time.localtime()))
     ds = calculate_biomass(ds)
     ds = post_process_biomass(ds)
 

@@ -1,7 +1,9 @@
+import os
 from datetime import datetime, timezone
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import xarray as xr
 
 
@@ -84,12 +86,12 @@ def ratio_centroid_to_max_ht(ds):
     return centroid_ht / max_ht
 
 
-def ground_to_sig_end_ht(ds):
+def adj_ground_to_sig_end_ht(ds):
     """
     Distance, in meters, from the ground peak to the signal end. Ground peak defined as whichever of the two lowest peaks has greater amplitude.
     """
     return get_heights_from_distance(
-        ds, top_metric='ground_peak_dist', bottom_metric='sig_end_dist'
+        ds, top_metric='adj_ground_peak_dist', bottom_metric='sig_end_dist'
     )
 
 
@@ -100,14 +102,16 @@ def sig_beg_to_highest_energy_ht(ds):
     return get_heights_from_distance(ds, top_metric='sig_begin_dist', bottom_metric='wf_max_e_dist')
 
 
-def start_to_centroid_ground_ht(ds):
+def start_to_centroid_adj_ground_ht(ds):
     """
-    Distance, in meters, from the start of the ground signal to the ground peak.
+    Vertical distance, in meters, between the height of the ground peak and the height of the ground signal start.
     Ground peak defined as whichever of the two lowest peaks has greater amplitude.
+
+    Based on Lefsky et al 1999 "Surface Lidar Remote Sensing of Basal Area and Biomass in Deciduous Forests of Eastern Maryland, USA"
+    The start of ground peak is defined by "the posterior half of the ground return is copied and flipped vertically to define the anterior
+    half of the ground return" Figure 2a. Thus, this distance is equal to height of ground peak to signal end
     """
-    return get_heights_from_distance(
-        ds, top_metric='start_of_ground_peak_dist', bottom_metric='adj_ground_peak_dist'
-    )
+    return adj_ground_to_sig_end_ht(ds)
 
 
 def sig_beg_to_start_of_ground_peak_ht(ds):
@@ -334,7 +338,7 @@ def get_percentile_of_sig_beg_and_adj_ground_dist(ds, percentile):
     """
     the distance, in meters, between the ground peak and the height at which 10% of the waveform energy
     from ground peak to signal beginning has been reached. Waveform energy accumulation relative to
-     ground peak. Ground peak defined as whichever of the two lowest peaks has greater amplitude.
+    ground peak. Ground peak defined as whichever of the two lowest peaks has greater amplitude.
     """
     from carbonplan_trace.v1.glas_preprocess import select_valid_area  # avoid circular import
 
@@ -497,6 +501,10 @@ def get_quadratic_mean_dist(ds):
 
     bins = ds.rec_wf_sample_dist
 
+    # equivalent to
+    # numerator = (np.square(bins) * sig_beg_to_adj_ground).sum(dim='rec_bin')
+    # denom = sig_beg_to_adj_ground.sum(dim='rec_bin')
+    # np.sqrt(numerator / denom)
     return np.sqrt(np.square(bins).weighted(sig_beg_to_adj_ground).mean("rec_bin"))
 
 
@@ -638,13 +646,14 @@ def front_slope_to_surface_energy_ratio(ds):
     """
     Front slope to surface energy ratio. We calculated fslope_WHRC as the change in amplitude per meter (volts/meter) in the outer canopy.
     We then applied the following linear transformation in order to calculate fslope on the same scale as provided in data published by
-    Margolis et al. (2015): f_slope  =0.5744 + 19.7762⋅fslope_WHRC
+    Margolis et al. (2015): f_slope = 0.5744 + 19.7762 * fslope_WHRC
     """
     # get the highest peak (highest in elevation = smallest distance)
     # the fillna is necessary since argmin raises an error otherwise
     # the filled nans will become nans again since canopy_amp at those locations are also nans
-    canopy_dist = ds.gaussian_fit_dist.fillna(1e10).argmin(dim="n_gaussian_peaks")
-    canopy_amp = ds.gaussian_amp.isel(n_gaussian_peaks=canopy_dist)
+    canopy_ind = ds.gaussian_fit_dist.fillna(1e10).argmin(dim="n_gaussian_peaks")
+    canopy_amp = ds.gaussian_amp.isel(n_gaussian_peaks=canopy_ind)
+    canopy_dist = ds.gaussian_fit_dist.isel(n_gaussian_peaks=canopy_ind)
 
     # calculate amplitude at signal begin as noise mean + nsig * noise sd since this is how signal
     # begin is defined (ie. the highest elevation where signal crosses this threshold)
@@ -658,7 +667,8 @@ def front_slope_to_surface_energy_ratio(ds):
 
     # calculate slope as y2-y1 / x2-x1
     fslope_WHRC = (canopy_amp - sig_begin_amp) / (canopy_dist - ds.sig_begin_dist)
-    return 0.5744 + 19.7762 * fslope_WHRC
+    # min max obtained from inspecting data in Margolis et al. (2015)
+    return (0.5744 + 19.7762 * fslope_WHRC).clip(min=-5, max=15)
 
 
 def highest_energy_value(ds):
@@ -757,33 +767,6 @@ def proportion_sig_beg_to_start_of_ground(ds):
     return sig_beg_to_ground.sum(dim="rec_bin") / total
 
 
-def pct_canopy_cover(ds, cutoff_height=1.0):
-    """
-    Mean percent canopy cover (range 0-100).
-    Cover was computed by dividing returns above the cover height threshold by total
-    number of returns (including those below the ground height cut-off) that were in the plot.
-    cutoff_height is in meters, return values are in % (0-100)
-    """
-    from carbonplan_trace.v1.glas_preprocess import select_valid_area  # avoid circular import
-
-    ds = get_dist_metric_value(ds, metric='ground_peak_dist')
-
-    # the processed wf is from sig beg to sig end, select sig beg to ground peak + cutoff height
-    vegetation_returns = select_valid_area(
-        bins=ds.rec_wf_sample_dist,
-        wf=ds.processed_wf,
-        signal_begin_dist=ds.sig_begin_dist,
-        signal_end_dist=ds.ground_peak_dist - cutoff_height,
-    )
-
-    # make sure dimensions matches up
-    dims = ds.processed_wf.dims
-    vegetation_returns = vegetation_returns.transpose(dims[0], dims[1])
-
-    # normalized by the total energy between signal beginning and end
-    return vegetation_returns.sum(dim="rec_bin") / ds.processed_wf.sum(dim="rec_bin") * 100
-
-
 def energy_adj_ground_to_sig_end(ds):
     """
     Waveform energy from the ground peak.  We calculated senergy_whrc as the energy of the waveform (in digital counts) from the ground peak
@@ -793,11 +776,21 @@ def energy_adj_ground_to_sig_end(ds):
     """
     from carbonplan_trace.v1.glas_preprocess import select_valid_area  # avoid circular import
 
+    path = os.path.join(os.path.dirname(__file__), '../../data/volt_table.csv')
+    volt_table = pd.read_csv(path)
+    volt_to_digital_count = volt_table.set_index('volt_value')['ind'].to_dict()
+    wf_in_digital_count = xr.apply_ufunc(
+        volt_to_digital_count.__getitem__,
+        ds.rec_wf.astype(float).round(6),
+        vectorize=True,
+        dask='parallelized',
+    )
+
     ds = get_dist_metric_value(ds, metric='adj_ground_peak_dist')
     # the processed wf is from sig beg to sig end, select adj ground peak to sig end instead
     ground_energy = select_valid_area(
         bins=ds.rec_wf_sample_dist,
-        wf=ds.processed_wf,
+        wf=wf_in_digital_count,
         signal_begin_dist=ds.adj_ground_peak_dist,
         signal_end_dist=ds.sig_end_dist,
     )
@@ -822,37 +815,42 @@ def all_zero_variable(ds, template_var='sig_begin_dist'):
     )
 
 
-def terrain_relief_class_1(ds):
+def acq3_Neigh(ds):
     """
-    Dummy variables used by Duncanson et al. (2010b). Elevation difference within GLAS footprints:
-    elev_diff=elev_max - elev_min (meters). terrain_1=elev_diff≥0 m and elev_diff<7 m.
+    Dummy variable used by Neigh et al. (2013) identifying shots from laser campaign L3F.
+    Campaign dates retrieved from https://nsidc.org/data/icesat/orbit_grnd_trck.html
     """
-    relief = get_heights_from_distance(
-        ds, top_metric='start_of_ground_peak_dist', bottom_metric='sig_end_dist'
-    )
-    return xr.where((relief >= 0) & (relief < 7), x=1, y=0)
+    output = all_zero_variable(ds)
+
+    # campaign L3F is between 2006-05-24 2006-06-26
+    begin = datetime(2006, 5, 24, 0, 0, 0, tzinfo=timezone.utc).timestamp()
+    end = datetime(2006, 6, 27, 0, 0, 0, tzinfo=timezone.utc).timestamp()
+
+    # set values within the dates to be 1
+    return output.where(((ds.time >= begin) & (ds.time <= end)), other=1)
 
 
-def terrain_relief_class_2(ds):
+def acq2_Nelson(ds):
     """
-    Dummy variables used by Duncanson et al. (2010b). Elevation difference within GLAS footprints:
-    elev_diff=elev_max - elev_min (meters). terrain_2=elev_diff≥7 m and elev_diff<15 m.
+    Dummy variable used by Nelson et al. (2017) identifying shots from laser campaign L3F.
+    Campaign dates retrieved from https://nsidc.org/data/icesat/orbit_grnd_trck.html
     """
-    relief = get_heights_from_distance(
-        ds, top_metric='start_of_ground_peak_dist', bottom_metric='sig_end_dist'
-    )
-    return xr.where((relief >= 7) & (relief < 15), x=1, y=0)
+    return acq3_Neigh(ds)
 
 
-def terrain_relief_class_3(ds):
+def acq3_Nelson(ds):
     """
-    Dummy variables used by Duncanson et al. (2010b). Elevation difference within GLAS footprints:
-    elev_diff=elev_max - elev_min (meters). terrain_3=elev_diff≥15 m
+    Dummy variable used by Nelson et al. (2017) identifying shots from laser campaign L3D.
+    Campaign dates retrieved from https://nsidc.org/data/icesat/orbit_grnd_trck.html
     """
-    relief = get_heights_from_distance(
-        ds, top_metric='start_of_ground_peak_dist', bottom_metric='sig_end_dist'
-    )
-    return xr.where(relief >= 15, x=1, y=0)
+    output = all_zero_variable(ds)
+
+    # campaign L3D is between 2005-10-21 2005-11-24
+    begin = datetime(2005, 10, 21, 0, 0, 0, tzinfo=timezone.utc).timestamp()
+    end = datetime(2005, 11, 24, 0, 0, 0, tzinfo=timezone.utc).timestamp()
+
+    # set values within the dates to be 1
+    return output.where(((ds.time >= begin) & (ds.time <= end)), other=1)
 
 
 def plot_shot(record):
@@ -969,8 +967,8 @@ def get_dist_metric_value(ds, metric):
     return ds
 
 
-def get_height_metric_value(ds, metric):
-    if metric not in ds and metric in HEIGHT_METRICS_MAP:
+def get_height_metric_value(ds, metric, recalc=False):
+    if (metric not in ds and metric in HEIGHT_METRICS_MAP) or recalc:
         ds[metric] = HEIGHT_METRICS_MAP[metric](ds)
     elif metric not in ds:
         raise NotImplementedError(
@@ -980,9 +978,9 @@ def get_height_metric_value(ds, metric):
     return ds
 
 
-def get_all_height_metrics(ds, metrics):
+def get_all_height_metrics(ds, metrics, recalc=False):
     for metric in metrics:
-        ds = get_height_metric_value(ds, metric)
+        ds = get_height_metric_value(ds, metric, recalc=recalc)
 
     return ds
 
@@ -1034,20 +1032,15 @@ HEIGHT_METRICS_MAP = {
     "h80_canopy": pct_80_canopy_ht,
     "f_slope": front_slope_to_surface_energy_ratio,
     "senergy": energy_adj_ground_to_sig_end,
-    "trail_Nelson": ground_to_sig_end_ht,
-    "lead_Nelson": start_to_centroid_ground_ht,
+    "trail_Nelson": adj_ground_to_sig_end_ht,
+    "lead_Nelson": start_to_centroid_adj_ground_ht,
     "Height_35_to_40": proportion_35_to_40m,
-    "treecover2000_mean": pct_canopy_cover,  # TODO: use additional dataset instead
-    "acq3_Neigh": all_zero_variable,
-    "acq2_Nelson": all_zero_variable,
-    "acq3_Nelson": all_zero_variable,
-    "ct2_Nelson": all_zero_variable,
+    "acq3_Neigh": acq3_Neigh,
+    "acq2_Nelson": acq2_Nelson,
+    "acq3_Nelson": acq3_Nelson,
     # "wf_max_e": highest_energy_value,
     # "wf_variance": wf_variance,
     # "wf_skew": wf_skew,
     # "startpeak": sig_beg_to_highest_energy_ht,
     # "wf_n_gs": number_of_peaks,
-    # "terrain_1": terrain_relief_class_1,
-    # "terrain_2": terrain_relief_class_2,
-    # "terrain_3": terrain_relief_class_3,
 }
