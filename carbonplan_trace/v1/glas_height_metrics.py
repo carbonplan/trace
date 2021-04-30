@@ -1,4 +1,3 @@
-import os
 from datetime import datetime, timezone
 
 import matplotlib.pyplot as plt
@@ -43,24 +42,26 @@ def first_peak_to_adj_ground_ht(ds):
     )
 
 
-def quadratic_mean_to_adj_ground_ht(ds):
+def quadratic_mean_to_ground_ht(ds):
     """
-    Quadratic mean height of the waveform from ground peak to signal beginning (meters).
+    Quadratic mean distance of the waveform from ground peak to signal beginning (meters).
     Ground peak defined as whichever of the two lowest peaks has greater amplitude.
+
+    The distance is then compared to the lowest peak to get the height
     """
     return get_heights_from_distance(
-        ds, top_metric='quadratic_mean_dist', bottom_metric='adj_ground_peak_dist'
+        ds, top_metric='quadratic_mean_dist', bottom_metric='ground_peak_dist'
     )
 
 
-def mean_to_adj_ground_ht(ds):
+def mean_to_ground_ht(ds):
     """
-    Mean height of the waveform from ground peak to signal beginning (meters).
+    Mean distance of the waveform from ground peak to signal beginning (meters).
     Ground peak defined as whichever of the two lowest peaks has greater amplitude.
+
+    The distance is then compared to the lowest peak to get the height
     """
-    return get_heights_from_distance(
-        ds, top_metric='mean_dist', bottom_metric='adj_ground_peak_dist'
-    )
+    return get_heights_from_distance(ds, top_metric='mean_dist', bottom_metric='ground_peak_dist')
 
 
 def centroid_to_adj_ground_ht(ds):
@@ -464,7 +465,12 @@ def get_adj_ground_peak_dist(ds):
     """
     # find the larger peak between the bottom two
     # We have a filter where we only process records with at least 2 peaks -- fillna is needed here because argmax doesn't deal with all nans
-    loc = ds.gaussian_amp.isel(n_gaussian_peaks=slice(2)).fillna(0).argmax(dim="n_gaussian_peaks")
+    loc = (
+        ds.gaussian_amp.isel(n_gaussian_peaks=slice(2))
+        .fillna(0)
+        .argmax(dim="n_gaussian_peaks")
+        .compute()
+    )
     return ds.gaussian_fit_dist.isel(n_gaussian_peaks=loc)
 
 
@@ -621,7 +627,7 @@ def get_wf_max_e_dist(ds):
     wf = ds.processed_wf
     bins = ds.rec_wf_sample_dist
 
-    return bins.isel(rec_bin=wf.argmax(dim="rec_bin"))
+    return bins.isel(rec_bin=wf.argmax(dim="rec_bin").compute())
 
 
 def get_leading_edge_dist(ds):
@@ -648,12 +654,12 @@ def front_slope_to_surface_energy_ratio(ds):
     We then applied the following linear transformation in order to calculate fslope on the same scale as provided in data published by
     Margolis et al. (2015): f_slope = 0.5744 + 19.7762 * fslope_WHRC
     """
-    # get the highest peak (highest in elevation = smallest distance)
+    # get the highest peak (max amplitude)
     # the fillna is necessary since argmin raises an error otherwise
     # the filled nans will become nans again since canopy_amp at those locations are also nans
-    canopy_ind = ds.gaussian_fit_dist.fillna(1e10).argmin(dim="n_gaussian_peaks")
-    canopy_amp = ds.gaussian_amp.isel(n_gaussian_peaks=canopy_ind)
-    canopy_dist = ds.gaussian_fit_dist.isel(n_gaussian_peaks=canopy_ind)
+    max_ind = ds.processed_wf.fillna(-99).argmax(dim='rec_bin').compute()
+    canopy_amp = ds.processed_wf.isel(rec_bin=max_ind)
+    canopy_dist = ds.rec_wf_sample_dist.isel(rec_bin=max_ind)
 
     # calculate amplitude at signal begin as noise mean + nsig * noise sd since this is how signal
     # begin is defined (ie. the highest elevation where signal crosses this threshold)
@@ -668,7 +674,7 @@ def front_slope_to_surface_energy_ratio(ds):
     # calculate slope as y2-y1 / x2-x1
     fslope_WHRC = (canopy_amp - sig_begin_amp) / (canopy_dist - ds.sig_begin_dist)
     # min max obtained from inspecting data in Margolis et al. (2015)
-    return (0.5744 + 19.7762 * fslope_WHRC).clip(min=-5, max=15)
+    return (0.5744 + 19.7762 * fslope_WHRC.clip(min=0)).clip(max=15)
 
 
 def highest_energy_value(ds):
@@ -776,12 +782,12 @@ def energy_adj_ground_to_sig_end(ds):
     """
     from carbonplan_trace.v1.glas_preprocess import select_valid_area  # avoid circular import
 
-    path = os.path.join(os.path.dirname(__file__), '../../data/volt_table.csv')
+    path = 'gs://carbonplan-climatetrace/inputs/volt_table.csv'
     volt_table = pd.read_csv(path)
     volt_to_digital_count = volt_table.set_index('volt_value')['ind'].to_dict()
     wf_in_digital_count = xr.apply_ufunc(
         volt_to_digital_count.__getitem__,
-        ds.rec_wf.astype(float).round(6),
+        ds.rec_wf.astype(float).round(6).fillna(-0.195279),
         vectorize=True,
         dask='parallelized',
     )
@@ -1002,8 +1008,8 @@ HEIGHT_METRICS_MAP = {
     "CANOPY_DEP": sig_beg_to_start_of_ground_peak_ht,
     "CANOPY_ENE": proportion_sig_beg_to_start_of_ground,
     "ht_adjusted": first_peak_to_adj_ground_ht,
-    "QMCH": quadratic_mean_to_adj_ground_ht,
-    "MeanH": mean_to_adj_ground_ht,
+    "QMCH": quadratic_mean_to_ground_ht,
+    "MeanH": mean_to_ground_ht,
     "HOME_Baccini": pct_50_to_sig_end_ht,
     "HOME_Yavasli": centroid_to_adj_ground_ht,
     "pct_HOME_Yavasli": ratio_centroid_to_max_ht,
