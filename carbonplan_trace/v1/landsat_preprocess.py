@@ -104,6 +104,8 @@ def grab_ds(item, bands_of_interest, cog_mask, utm_zone):
     ds = ds.where(ds != 0)  
     ds = ds.where(cog_mask<2)
     ds.attrs["utm_zone"] = utm_zone
+    ds = calc_NDVI(ds)
+    ds = calc_NDII(ds)
     return ds
 
 
@@ -198,3 +200,49 @@ def get_scene_utm_zone(url):
     metadata = json.loads(data['Body'].read())
     utm_zone = metadata['LANDSAT_METADATA_FILE']['PROJECTION_ATTRIBUTES']['UTM_ZONE']
     return utm_zone
+
+    
+def calc_NDVI(ds):
+    '''
+    Calculate NDVI (Jordan 1969, Rouse et al 1974) based upon bands 3 and 4. 
+    *Note* only valid for landsat 5 and 7 right now.
+    https://www.usgs.gov/core-science-systems/nli/landsat/landsat-normalized-difference-vegetation-index
+    
+    Parameters
+    ----------
+    ds: xarray Dataset
+        dataset with six surface reflectance bands
+
+    Returns
+    -------
+    ds: xarray Dataset
+        dataset with NDVI added as variable
+    '''
+
+    nir = ds.sel(band='SR_B4')
+    red = ds.sel(band='SR_B3')
+    ds['NDVI'] = ( nir - red ) / ( nir + red)
+    return ds
+
+
+def calc_NDII(ds):
+
+    '''
+    Calculate NDII (Hardisky et al, 1984) based upon bands 4 and 5. *Note* only valid
+    for landsat 5 and 7 right now.
+    
+    
+    Parameters
+    ----------
+    ds: xarray Dataset
+        dataset with six surface reflectance bands
+
+    Returns
+    -------
+    ds: xarray Dataset
+        dataset with NDII added as variable
+    '''
+    nir = ds.sel(band='SR_B4')
+    swir = ds.sel(band='SR_B5')
+    ds['NDII'] = ( nir - swir ) / ( nir + swir)
+    return ds
