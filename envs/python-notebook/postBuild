@@ -6,3 +6,5 @@ jupyter serverextension enable --py jupyter_server_proxy
 jupyter labextension install -y --minimize False dask-labextension @jupyter-widgets/jupyterlab-manager @jupyterlab/server-proxy
 
 code-server --install-extension ms-python.python
+
+pip install -U git+https://github.com/carbonplan/trace.git@main --no-deps

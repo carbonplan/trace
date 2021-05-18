@@ -2,7 +2,7 @@ name: carbonplan
 channels:
   - conda-forge
 dependencies:
-  - pangeo-notebook=2021.03.06
+  - pangeo-notebook=2021.05.15
   - boto3
   - bottleneck
   - cartopy
@@ -69,7 +69,6 @@ dependencies:
   - pip:
       - carbonplan
       - carbonplan-data
-      - carbonplan-forests
       - carbonplan-styles
       - rio-tiler-mvt
       - git+https://github.com/carbonplan/trace.git@main
