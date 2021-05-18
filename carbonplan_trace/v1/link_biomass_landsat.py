@@ -22,7 +22,6 @@ import json
 import zarr
 import awswrangler as wr
 
-
 def add_landsat_utm_zone(scene_gdf):
     '''
     Grab sample file for each landsat scene and

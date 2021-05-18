@@ -219,8 +219,8 @@ def calc_NDVI(ds):
         dataset with NDVI added as variable
     '''
 
-    nir = ds.sel(band='SR_B4')
-    red = ds.sel(band='SR_B3')
+    nir = ds.sel(band='SR_B4')['reflectance'].drop('band')
+    red = ds.sel(band='SR_B3')['reflectance'].drop('band')
     ds['NDVI'] = ( nir - red ) / ( nir + red)
     return ds
 
@@ -242,7 +242,55 @@ def calc_NDII(ds):
     ds: xarray Dataset
         dataset with NDII added as variable
     '''
-    nir = ds.sel(band='SR_B4')
-    swir = ds.sel(band='SR_B5')
+    nir = ds.sel(band='SR_B4')['reflectance'].drop('band')
+    swir = ds.sel(band='SR_B5')['reflectance'].drop('band')
     ds['NDII'] = ( nir - swir ) / ( nir + swir)
     return ds
+
+@dask.delayed
+def scene_seasonal_average(path, row, year, bucket, access_key_id, secret_access_key,
+                           bands_of_interest='all', season='JJA'):
+    '''
+    Given location/time specifications will grab all valid scenes,
+    mask each according to its time-specific cloud QA and then 
+    return average across all masked scenes
+    '''
+    aws_session = AWSSession(boto3.Session(aws_access_key_id=access_key_id,
+                                          aws_secret_access_key=secret_access_key),
+                            requester_pays=True)
+    fs = S3FileSystem(key=access_key_id,
+                    secret=secret_access_key, requester_pays=True)
+
+    with dask.config.set(scheduler='single-threaded'): # this? **** #threads #single-threaded # threads??
+        with rio.Env(aws_session):
+            test_credentials(aws_session)
+
+            # set where you'll save the final seasonal average
+            url = f'{bucket}{path}/{row}/{year}/{season}_reflectance.zarr'
+            mapper = fs.get_mapper(url) #used to be fsspec
+            # all of this is just to get the right formatting stuff to access the scenes
+
+            landsat_bucket = 's3://usgs-landsat/collection02/level-2/standard/tm/{}/{:03d}/{:03d}/'
+            month_keys = {'JJA': ['06', '07', '08']}
+            valid_files, ds_list = [], []
+
+            if bands_of_interest=='all':
+                bands_of_interest = ['SR_B1', 'SR_B2', 'SR_B3', 
+                                         'SR_B4', 'SR_B5', 'SR_B7']
+            scene_stores = fs.ls(landsat_bucket.format(year, path, row))
+            summer_datestamps = ['{}{}'.format(year, month) for month in month_keys[season]]
+            for scene_store in scene_stores:
+                for summer_datestamp in summer_datestamps:
+                    if summer_datestamp in scene_store:
+                        valid_files.append(scene_store)
+            for file in valid_files:
+                scene_id = file[-40:]
+                url = 's3://{}/{}'.format(file, scene_id)
+                utm_zone = get_scene_utm_zone(url)
+                cloud_mask_url = url+'_SR_CLOUD_QA.TIF'
+                cog_mask = cloud_qa(cloud_mask_url)
+                ds_list.append(grab_ds(url, bands_of_interest, cog_mask, utm_zone))
+            seasonal_average = average_stack_of_scenes(ds_list)
+            
+            write_out(seasonal_average.chunk({'band': 6, 'x': 1024, 'y': 1024}), mapper)
+            return url
