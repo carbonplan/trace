@@ -69,7 +69,6 @@ dependencies:
   - pip:
       - carbonplan
       - carbonplan-data
-      - carbonplan-forests
       - carbonplan-styles
       - rio-tiler-mvt
       - git+https://github.com/carbonplan/trace.git@main
