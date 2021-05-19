@@ -801,16 +801,8 @@ def filter_on_time_of_year(ds):
     special_eq = ds.allometric_eq.isin(
         ['conus_conifer_popescu_2011', 'palearctic_shang_and_chazette_2014']
     )
-    north = (ds.lat > 23.5) & (
-        ~ds.allometric_eq.isin(
-            ['afrotropic', 'tropical_asia', 'tropical_neotropic', 'extratropical_neotropic']
-        )
-    )
-    south = (ds.lat < -23.5) & (
-        ~ds.allometric_eq.isin(
-            ['afrotropic', 'tropical_asia', 'tropical_neotropic', 'extratropical_neotropic']
-        )
-    )
+    north = ds.lat > 23.5
+    south = ds.lat < -23.5
 
     # define time
     # 2006-10-25 to 2006-11-27
