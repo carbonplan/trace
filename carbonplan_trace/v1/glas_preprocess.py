@@ -189,7 +189,7 @@ def preprocess_wf(ds):
         vectorize=True,
         dask="parallelized",
         dask_gufunc_kwargs={"allow_rechunk": 1},
-        output_dtypes=float,
+        output_dtypes=['float'],
     )
 
     # denoise
