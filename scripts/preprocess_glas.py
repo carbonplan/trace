@@ -13,7 +13,7 @@ from carbonplan_trace.v1.glas_extract import extract_GLAH01_data, extract_GLAH14
 fs = GCSFileSystem()
 
 skip_existing = True
-chunksize = 2000
+chunksize = 20000
 
 drop_keys = {
     'GLAH01': ['rec_bin', 'shot_number', 'tx_bin'],
@@ -102,13 +102,16 @@ def lazy_open(uri):
 
 
 def main(products=['GLAH01', 'GLAH14']):
-
     # convert hdf5 granules to zarr
     print('granules_h5_to_zarr')
     results = granules_h5_to_zarr(products)
 
     for p, presults in results.items():
+        n_failed = len(presults['failed'])
+        print(f'{n_failed} failed')
         uris = presults['skipped'] + presults['converted']
+        n_files = len(uris)
+        print(f'processing {n_files} files')
 
         print('open xarray datasets')
         ds_list = dask.compute([lazy_open(uri) for uri in uris])[0]
@@ -128,7 +131,7 @@ def main(products=['GLAH01', 'GLAH14']):
 
         # print('writing zarr dataset')
         ds.to_zarr(mapper, compute=False, mode='w')
-        stepsize = chunksize * 1
+        stepsize = chunksize * 10
         recs = ds.dims['record_index']
         print('writing zarr dataset chunks')
         for left, right in zip(
@@ -147,4 +150,4 @@ if __name__ == '__main__':
     print(client)
     print(client.dashboard_link)
 
-    main(products=['GLAH01'])
+    main(products=['GLAH14'])

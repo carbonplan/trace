@@ -12,7 +12,8 @@ from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
 
 import dask
 import fsspec
-from pangeo_forge.utils import chunked_iterable
+
+# from pangeo_forge.utils import chunked_iterable
 
 # short_name = 'GLAH01'
 # version = '033'
@@ -32,6 +33,15 @@ CMR_FILE_URL = (
     "&sort_key[]=start_date&sort_key[]=producer_granule_id"
     "&scroll=true&page_size={1}".format(CMR_URL, CMR_PAGE_SIZE)
 )
+
+
+def chunked_iterable(iterable, size):
+    it = iter(iterable)
+    while True:
+        chunk = tuple(itertools.islice(it, size))
+        if not chunk:
+            break
+        yield chunk
 
 
 def get_username():
@@ -303,7 +313,8 @@ def main():
         tasks.append(
             cmr_download(
                 url_group,
-                "gs://carbonplan-scratch/glas-cache/",
+                #                 "gs://carbonplan-scratch/glas-cache/",
+                "gs://carbonplan-climatetrace/inputs/glas-raw/",
                 credentials=credentials,
             )
         )

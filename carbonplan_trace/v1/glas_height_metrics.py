@@ -790,6 +790,7 @@ def energy_adj_ground_to_sig_end(ds):
         ds.rec_wf.astype(float).round(6).fillna(-0.195279),
         vectorize=True,
         dask='parallelized',
+        output_dtypes=int,
     )
 
     ds = get_dist_metric_value(ds, metric='adj_ground_peak_dist')
@@ -986,6 +987,7 @@ def get_height_metric_value(ds, metric, recalc=False):
 
 def get_all_height_metrics(ds, metrics, recalc=False):
     for metric in metrics:
+        # print(metric)
         ds = get_height_metric_value(ds, metric, recalc=recalc)
 
     return ds
