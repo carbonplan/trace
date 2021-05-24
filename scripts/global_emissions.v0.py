@@ -1,12 +1,15 @@
+#!/usr/bin/env python
+
 import dask
 import fsspec
-import intake
 import numcodecs
 import numpy as np
 import rasterio
 import xarray as xr
 import zarr
 from tqdm import tqdm
+
+from carbonplan_trace.v0.data import cat
 
 TC02_PER_TC = 3.67
 TC_PER_TBM = 0.5
@@ -83,7 +86,7 @@ def calc_one_tile(ds):
         Timeseries (for the full record) of emissions due to
         forest tree cover disturbance.
     """
-    years = xr.DataArray(range(2001, 2019), dims=("year",), name="year")
+    years = xr.DataArray(range(2001, 2021), dims=("year",), name="year")
     loss_frac = []
     for year in years:
         loss_frac.append(xr.where((ds["lossyear"] == year), ds["treecover2000"], 0))
@@ -92,10 +95,10 @@ def calc_one_tile(ds):
     return ds
 
 
-def open_hansen_2018_tile(lat, lon, emissions=False):
+def open_hansen_change_tile(lat, lon, emissions=False):
 
     """
-    Open single tile from the Hansen 2018 dataset and then
+    Open single tile from the Hansen 2020 dataset and then
     massage it into a format for use by the rest of the routines.
 
     Parameters
@@ -108,20 +111,15 @@ def open_hansen_2018_tile(lat, lon, emissions=False):
     -------
     ds : xarray dataset
         Dataset containing tree cover, above ground biomass,
-        loss year. Will be a timeseries spanning from 2001 to 2018.
+        loss year. Will be a timeseries spanning from 2001 to 2020.
     """
 
     ds = xr.Dataset()
 
-    # data catalog
-    cat = intake.open_catalog(
-        "https://raw.githubusercontent.com/carbonplan/forest-emissions-tracking/master/catalog.yaml"
-    )
-
-    # Min Hansen data
+    # Min global forest change data
     variables = ["treecover2000", "gain", "lossyear", "datamask"]  # , "first", "last"]
     for v in variables:
-        da = cat.hansen_2018(variable=v, lat=lat, lon=lon).to_dask().pipe(_preprocess)
+        da = cat.hansen_change(variable=v, lat=lat, lon=lon).to_dask().pipe(_preprocess)
         # force coords to be identical
         if ds:
             da = da.assign_coords(lat=ds.lat, lon=ds.lon)
@@ -132,7 +130,7 @@ def open_hansen_2018_tile(lat, lon, emissions=False):
 
     # Hansen biomass
     ds["agb"] = (
-        cat.hansen_biomass(lat=lat, lon=lon).to_dask().pipe(_preprocess, lat=ds.lat, lon=ds.lon)
+        cat.gfw_biomass(lat=lat, lon=lon).to_dask().pipe(_preprocess, lat=ds.lat, lon=ds.lon)
     )
     if emissions:
         # Hansen emissions
@@ -155,7 +153,7 @@ def process_one_tile(lat, lon):
 
     """
     Given lat and lon to select a region, calculate the
-    corresponding emissions for each year from 2001 to 2018
+    corresponding emissions for each year from 2001 to 2020
 
     Parameters
     ----------
@@ -170,14 +168,14 @@ def process_one_tile(lat, lon):
         Url where a processed tile is located
     """
 
-    url = f"gs://carbonplan-climatetrace/v0/tiles/{lat}_{lon}.zarr"
+    url = f"gs://carbonplan-climatetrace/v0.1/tiles/{lat}_{lon}.zarr"
 
     encoding = {"emissions": {"compressor": numcodecs.Blosc()}}
 
     mapper = fsspec.get_mapper(url)
 
     with dask.config.set(scheduler="threads"):
-        ds = open_hansen_2018_tile(lat, lon)
+        ds = open_hansen_change_tile(lat, lon)
         ds = calc_one_tile(ds)[["emissions"]]
         ds = ds.chunk({"lat": 4000, "lon": 4000, "year": 2})
         ds.to_zarr(mapper, encoding=encoding, mode="w", consolidated=True)
@@ -195,7 +193,7 @@ def main():
 
     #     client = cluster.get_client()
     with fsspec.open(
-        "https://storage.googleapis.com/earthenginepartners-hansen/GFC-2018-v1.6/treecover2000.txt"
+        "https://storage.googleapis.com/earthenginepartners-hansen/GFC-2020-v1.8/treecover2000.txt"
     ) as f:
         lines = f.read().decode().splitlines()
     print("We are working with {} different files".format(len(lines)))

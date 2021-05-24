@@ -4,10 +4,10 @@ plugins:
 
 sources:
 
-  hansen_2018:
+  hansen_change:
     description: Global 30m treecover and loss/gain
     metadata:
-      url: 'http://earthenginepartners.appspot.com/science-2013-global-forest/download_v1.6.html'
+      url: 'https://storage.cloud.google.com/earthenginepartners-hansen/GFC-2020-v1.8/download.html'
       tags:
         - forest
     parameters:
@@ -25,10 +25,10 @@ sources:
         default: 070W
     driver: rasterio
     args:
-      urlpath: 'https://storage.googleapis.com/earthenginepartners-hansen/GFC-2018-v1.6/Hansen_GFC-2018-v1.6_{{ variable }}_{{ lat }}_{{ lon }}.tif'
+      urlpath: 'gs://earthenginepartners-hansen/GFC-2020-v1.8/Hansen_GFC-2020-v1.8_{{ variable }}_{{ lat }}_{{ lon }}.tif'
       chunks: {'y': 4000, 'x': 4000}
 
-  hansen_biomass:
+  gfw_biomass:
     description: Global 30m above ground biomass
     metadata:
       url: 'http://data.globalforestwatch.org/datasets/8f93a6f94a414f9588ce4657a39c59ff_1'
@@ -48,10 +48,10 @@ sources:
       urlpath: 'http://gfw2-data.s3.amazonaws.com/climate/WHRC_biomass/WHRC_V4/Processed/{{ lat }}_{{lon}}_t_aboveground_biomass_ha_2000.tif'
       chunks: {'y': 4000, 'x': 4000}
 
-  hansen_emissions_ha:
-    description: Global 30m forest carbon emissions
+  gwf_emissions:
+    description: Global 30m emissions from Harris et al. 2021
     metadata:
-      url: 'http://data.globalforestwatch.org/datasets/tree-biomass-loss'
+      url: 'https://data.globalforestwatch.org/datasets/forest-greenhouse-gas-emissions-1'
       tags:
         - biomass
     parameters:
@@ -64,70 +64,10 @@ sources:
         type: str
         default: 070W
       unit:
-        description: emissions unit
+        description: emission units
         type: str
-        default: per_hectare
+        default: Mg_CO2e_ha
     driver: rasterio
     args:
-      urlpath: 'http://gfw2-data.s3.amazonaws.com/climate/Hansen_emissions/2018_loss/per_hectare/{{ lat }}_{{ lon }}_tCO2_ha_AGB_masked_by_loss.tif'
+      urlpath: 'https://data-api.globalforestwatch.org/dataset/gfw_forest_carbon_gross_emissions/v20210331/download/geotiff?grid=10/40000&tile_id={{ lat }}_{{lon}}&pixel_meaning={{ unit }}'
       chunks: {'y': 4000, 'x': 4000}
-
-  hansen_emissions_px:
-    description: Global 30m forest carbon emissions
-    metadata:
-      url: 'http://data.globalforestwatch.org/datasets/tree-biomass-loss'
-      tags:
-        - biomass
-    parameters:
-      lat:
-        description: latitude-tile
-        type: str
-        default: 10S
-      lon:
-        description: longitude-tile
-        type: str
-        default: 070W
-      unit:
-        description: emissions unit
-        type: str
-        default: per_hectare
-    driver: rasterio
-    args:
-      urlpath: 'http://gfw2-data.s3.amazonaws.com/climate/Hansen_emissions/2018_loss/per_pixel/{{ lat }}_{{ lon }}_tCO2_pixel_AGB_masked_by_loss.tif'
-      chunks: {'y': 4000, 'x': 4000}
-
-  ornl_biomass:
-    description: TODO
-    metadata:
-      url: 'https://daac.ornl.gov/cgi-bin/dsviewer.pl?ds_id=1763'
-      tags:
-        - forest
-        - biomass
-    driver: zarr
-
-    args:
-      urlpath: 'gs://carbonplan-data/biomass/ORNL_Global_Maps_C_Density_2010.zarr'
-      storage_options:
-        token: anon
-        access: read_only
-        project: carbonplan
-
-  fia_by_state:
-    description: FIA biomass aggregated by state
-    metadata:
-      tags:
-        - forest
-        - biomass
-    driver: csv
-    args: # passed to the open() method
-      urlpath: '{{ CATALOG_DIR }}/data/FIA-biomass-by-state.csv'
-
-  fia_ca:
-    description: FIA biomass aggregated by state
-    metadata:
-      tags:
-        - forest
-        - biomass
-    driver: csv
-    args: # passed to the open() method
-      urlpath: '{{ CATALOG_DIR }}/data/FIA-CA.csv'
