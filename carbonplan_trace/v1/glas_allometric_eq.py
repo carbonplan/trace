@@ -781,7 +781,13 @@ def filter_on_time_of_year(ds):
 
     Timing of campaigns retrieved from https://icesat.gsfc.nasa.gov/icesat/missionevents.php, https://nsidc.org/data/icesat/orbit_grnd_trck.html
     """
-    # print(f'{ds.dims["unique_index"]} records before filtering based on time')
+    d0 = datetime(2000, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    if ds.time.isnull().sum() > 0:
+        print('filling nulls')
+        filler = ds.datetime.fillna(d0).astype(int) / 1e9
+        ds['time'] = ds.time.fillna(filler)
+
+    print(f'{ds.dims["unique_index"]} records before filtering based on time')
     # filter out campaigns 2E and 2F according to Farina et al 2018 (data after mar 1st, 2019)
     d = datetime(2009, 3, 1, 0, 0, 0, tzinfo=timezone.utc).timestamp()
     ds = ds.where(ds.time < d, drop=True)
@@ -789,22 +795,14 @@ def filter_on_time_of_year(ds):
     L1B_start = datetime(2003, 3, 20, 0, 0, 0, tzinfo=timezone.utc).timestamp()
     L1B_end = datetime(2003, 3, 29, 0, 0, 0, tzinfo=timezone.utc).timestamp()
     ds = ds.where(((ds.time < L1B_start) | (ds.time > L1B_end)), drop=True)
-    # print(f'{ds.dims["unique_index"]} records aftering filtering out campaign L2E, L2F, L1B')
+    print(f'{ds.dims["unique_index"]} records aftering filtering out campaign L2E, L2F, L1B')
 
     # define regions north or south of the tropics
     special_eq = ds.allometric_eq.isin(
         ['conus_conifer_popescu_2011', 'palearctic_shang_and_chazette_2014']
     )
-    north = (ds.lat > 23.5) & (
-        ~ds.allometric_eq.isin(
-            ['afrotropic', 'tropical_asia', 'tropical_neotropic', 'extratropical_neotropic']
-        )
-    )
-    south = (ds.lat < -23.5) & (
-        ~ds.allometric_eq.isin(
-            ['afrotropic', 'tropical_asia', 'tropical_neotropic', 'extratropical_neotropic']
-        )
-    )
+    north = ds.lat > 23.5
+    south = ds.lat < -23.5
 
     # define time
     # 2006-10-25 to 2006-11-27
@@ -820,8 +818,8 @@ def filter_on_time_of_year(ds):
     )
     south_leaf_on = (
         (ds.datetime.dt.month < 5)
-        & ((ds.time >= L3G_start) & (ds.time <= L3G_end))
-        & ((ds.time >= L2D_start) & (ds.time <= L2D_end))
+        | ((ds.time >= L3G_start) & (ds.time <= L3G_end))
+        | ((ds.time >= L2D_start) & (ds.time <= L2D_end))
     )
     # if a record is: 1) in the north, 2) not in north leaf on time period, and 3) not in special eq, drop them
     ds = ds.where(~(north & ~north_leaf_on & ~special_eq), drop=True)
@@ -830,7 +828,7 @@ def filter_on_time_of_year(ds):
     # if a record in: 1) in the special eq, 2) in the north, 3) not in the north leaf off (aka south leaf on) time period, drop them
     ds = ds.where(~(north & ~south_leaf_on & special_eq), drop=True)
     ds = ds.where(~(south & ~north_leaf_on & special_eq), drop=True)
-    # print(f'{ds.dims["unique_index"]} records aftering filtering based on leaf on/off conditions')
+    print(f'{ds.dims["unique_index"]} records aftering filtering based on leaf on/off conditions')
 
     return ds
 
@@ -848,14 +846,12 @@ def calculate_biomass(ds):
         else:
             missing_eq_name.append(eq_name)
 
-    out = xr.concat(out, dim='unique_index')
+    return xr.concat(out, dim='unique_index')
     # if len(missing_eq_name) > 0:
     #     print(
     #         f'Dropping {ds.dims["unique_index"] - out.dims["unique_index"]} records out of {ds.dims["unique_index"]} due to missing equations {missing_eq_name}'
     #     )
     # assert out.biomass.isnull().mean() == 0
-
-    return out
 
 
 def post_process_biomass(ds):
