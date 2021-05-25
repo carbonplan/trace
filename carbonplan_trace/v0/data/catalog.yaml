@@ -25,7 +25,7 @@ sources:
         default: 070W
     driver: rasterio
     args:
-      urlpath: 'gs://earthenginepartners-hansen/GFC-2020-v1.8/Hansen_GFC-2020-v1.8_{{ variable }}_{{ lat }}_{{ lon }}.tif'
+      urlpath: 'https://storage.googleapis.com/earthenginepartners-hansen/GFC-2020-v1.8/Hansen_GFC-2020-v1.8_{{ variable }}_{{ lat }}_{{ lon }}.tif'
       chunks: {'y': 4000, 'x': 4000}
 
   gfw_biomass:
