@@ -620,7 +620,7 @@ def assign_treecover_values(data, tiles):
     for tile in tiles:
         lat, lon = utils.get_lat_lon_tags_from_tile_path(tile)
         # get Hansen data
-        hansen_tile = cat.hansen_2018(variable='treecover2000', lat=lat, lon=lon).to_dask()
+        hansen_tile = cat.hansen_change(variable='treecover2000', lat=lat, lon=lon).to_dask()
         hansen_tile = hansen_tile.rename({"x": "lon", "y": "lat"}).squeeze(drop=True)
         hansen.append(hansen_tile.to_dataset(name='treecover2000', promote_attrs=True))
     hansen = xr.combine_by_coords(hansen, combine_attrs="drop_conflicts").chunk(
