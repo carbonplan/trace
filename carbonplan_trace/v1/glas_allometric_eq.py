@@ -586,7 +586,6 @@ def assign_ecoregion_values(data, tiles):
     # ecoregions map contains Ecoregions2017, NLCD, and EOSD data
     ecoregions_mask = utils.open_ecoregion_data(tiles)
     eco_records = utils.find_matching_records(data=ecoregions_mask, lats=data.lat, lons=data.lon)
-    assert (data.unique_index == eco_records.unique_index).mean() == 1
     for v in eco_records:
         data[v] = eco_records[v]
     del ecoregions_mask
@@ -608,7 +607,6 @@ def assign_ecoregion_values(data, tiles):
     igbp_records = utils.find_matching_records(
         data=igbp, lats=data.lat, lons=data.lon, years=data.datetime.dt.year
     )
-    assert (data.unique_index == igbp_records.unique_index).mean() == 1
     data['igbp'] = igbp_records.igbp
     del igbp
 
@@ -628,7 +626,6 @@ def assign_treecover_values(data, tiles):
     )
 
     hansen_records = utils.find_matching_records(data=hansen, lats=data.lat, lons=data.lon)
-    assert (data.unique_index == hansen_records.unique_index).mean() == 1
     data['treecover2000_mean'] = hansen_records['treecover2000']
 
     del hansen
@@ -639,7 +636,6 @@ def assign_treecover_values(data, tiles):
 def assign_burned_area_values(data, tiles):
     burned_area = utils.open_burned_area_data(tiles)
     burned_area_rec = utils.find_matching_records(data=burned_area, lats=data.lat, lons=data.lon)
-    assert (data.unique_index == burned_area_rec.unique_index).mean() == 1
 
     # if the GLAS shot is burned after year 2000 but prior to year of GLAS acquisition
     # set "burned" to True, else to False
@@ -846,12 +842,11 @@ def calculate_biomass(ds):
         else:
             missing_eq_name.append(eq_name)
 
-    return xr.concat(out, dim='unique_index')
     # if len(missing_eq_name) > 0:
     #     print(
     #         f'Dropping {ds.dims["unique_index"] - out.dims["unique_index"]} records out of {ds.dims["unique_index"]} due to missing equations {missing_eq_name}'
     #     )
-    # assert out.biomass.isnull().mean() == 0
+    return xr.concat(out, dim='unique_index')
 
 
 def post_process_biomass(ds):
@@ -890,11 +885,9 @@ def apply_allometric_equation(ds, min_lat, max_lat, min_lon, max_lon):
 
     # assign allometric eq
     ds["allometric_eq"] = assign_allometric_eq(ds)
-    # print('before filtering on time: current time is ', time.strftime("%H:%M:%S", time.localtime()))
     ds = filter_on_time_of_year(ds)
 
     # apply allometric equations
-    # print('before biomass: current time is ', time.strftime("%H:%M:%S", time.localtime()))
     ds = calculate_biomass(ds)
     ds = post_process_biomass(ds)
 
