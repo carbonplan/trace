@@ -51,7 +51,7 @@ def convert_long3_to_long1(long3):
 
 def open_zarr_file(uri, file_system='gs'):
     if not uri.startswith(f'{file_system}://'):
-        uri = f'{file_system}://' + uri
+        uri = f'{file_system}://{uri}'
     mapper = fsspec.get_mapper(uri)
     ds = xr.open_zarr(mapper)
     return ds
