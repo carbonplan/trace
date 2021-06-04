@@ -11,6 +11,7 @@ import rioxarray as rio
 import pandas as pd
 from datetime import datetime, timezone
 from carbonplan_trace.v0.data import cat
+import dask
 
 fs = S3FileSystem(profile='default', requester_pays=True)
 
@@ -65,8 +66,9 @@ def reproject_dataset(ds, zone=None):
     ds = add_crs_dataset(ds, zone=zone)
     min_lat, max_lat, min_lon, max_lon = check_mins_maxes(ds)
     target, tiles = create_target(min_lat, max_lat, min_lon, max_lon)
-    reprojected = ds.rio.reproject_match(target)
-    reprojected = reprojected.reflectance.to_dataset(dim='band').drop('spatial_ref')
+    # the numbers aren't too big but if we normalize they might turn into decimals
+    reprojected = ds.rio.reproject_match(target).astype('float32') 
+    reprojected = reprojected.reflectance.to_dataset(dim='band').drop('spatial_ref').load()
     return reprojected, tiles
 
 def dataset_to_tabular(ds):
@@ -139,13 +141,12 @@ def add_lat_lon_to_table(df, zone_number, zone_letter):
     projection_df = pd.DataFrame(lat_lon_info, columns=projected_column_names, index=df.index)
     updated_df = pd.concat([df, projection_df], axis=1)
     return updated_df
-
-
-# def projection():
-#     # same steps as with glas - might already be done (is it in tabular when read in?)
-
-# def append_to_biomass():
-#     tack on landsat as extra columns
+# @dask.delayed
+# def predict():
+    # develop inference dataframe
+    # load_xgb_model 
+    # run model <-- from cindy
+    # returns string which is path to dataset it wrote
 
 def load_xgb_model(model_path, local_folder='./'):
     if model_path.startswith('s3'):
@@ -166,7 +167,7 @@ def nearest_neighbor_variable(data_ds, template_ds):
     # print(nearest_variables.lon)
     # print(nearest_variables.x)
 
-    return nearest_variables
+    return nearest_variables.astype('int16')
 
 def get_aster(ds, tiles): # tile_names
     '''
@@ -175,8 +176,7 @@ def get_aster(ds, tiles): # tile_names
     '''
     full_aster = utils.open_and_combine_lat_lon_data("gs://carbonplan-climatetrace/intermediates/aster/", 
                                                     tiles=tiles)
-    nearest_variables = nearest_neighbor_variable(full_aster, ds)
-    
+    nearest_variables = nearest_neighbor_variable(full_aster, ds).load().drop(['spatial_ref', 'lat', 'lon'])
     # print(nearest_variables)#.to_dataframe().drop(['lat', 'lon'], axis=1)
     # aster_records = utils.find_matching_records(data=full_aster, lats=df.y, lons=df.x)
     # print(aster_records)
@@ -184,62 +184,28 @@ def get_aster(ds, tiles): # tile_names
     #     df[column] = aster_records[column]
     return xr.merge([ds, nearest_variables])
 
+def get_worldclim(ds, timestep='annual'):
+    if timestep=='monthly':
+        mapper = fsspec.get_mapper('gs://carbonplan-data/raw/worldclim/30s/raster.zarr')
+        worldclim = xr.open_zarr(mapper, consolidated=True).rename({"x": "lon", "y": "lat"})
 
-def worldclim_seasons(ds):
-    # group monthly worldclim data into seasons DJF MAM JJA SON
-    days_in_month = {
-        1: 31,
-        2: 28.25,
-        3: 31,
-        4: 30,
-        5: 31,
-        6: 30,
-        7: 31,
-        8: 31,
-        9: 30,
-        10: 31,
-        11: 30,
-        12: 31
-    }
-
-    months_in_season = [
-        (1, [12, 1, 2]),
-        (4, [3, 4, 5]),
-        (7, [6, 7, 8]),
-        (10, [9, 10, 11])
-    ]
-
-    month_to_season = {}
-    for s, m in months_in_season:
-        month_to_season.update({mm: s for mm in m})
-        
-
-    monthly_variables = ['prec', 'srad', 'tavg', 'tmax', 'tmin', 'vapr', 'wind']
-
-    seasons = []
-    seasonal_data = []
-    for season, months in months_in_season: 
-        weights = xr.DataArray(
-            [days_in_month[m] for m in months],
-            dims=['month'],
-            coords={'month': months}
-        )
-        
-        seasons.append(season)
-        seasonal_data.append(ds[monthly_variables].sel(month=months).weighted(weights).mean(dim='month'))
-
-    seasonal_data = xr.concat(seasonal_data, pd.Index(seasons, name="season"))
-    return seasonal_data
-
-def get_worldclim(ds):
-    mapper = fsspec.get_mapper('gs://carbonplan-data/raw/worldclim/30s/raster.zarr')
-    worldclim = xr.open_zarr(mapper, consolidated=True).rename({"x": "lon", "y": "lat"})
-    worldclim_subset = nearest_neighbor_variable(worldclim, ds)
-    worldclim_subset = worldclim_subset.drop(['lat', 'lon'])
-    seasonal_worldclim = worldclim_seasons(worldclim_subset)
-    static_vars = [f'BIO{str(n).zfill(2)}' for n in range(1, 20)]
-    static_worldclim = worldclim_subset[static_vars]
-    return xr.merge([ds, seasonal_worldclim, static_worldclim])
+    elif timestep=='annual':
+        mapper = fsspec.get_mapper('s3://carbonplan-climatetrace/v1/data/intermediates/annual_averaged_worldclim.zarr')
+        worldclim = xr.open_zarr(mapper, consolidated=True)
+    worldclim_subset = worldclim.sel(lon=slice(float(ds.x.min().values), float(ds.x.max().values)),
+                            lat=slice(float(ds.y.max().values), float(ds.y.min().values))
+                            # ).chunk({'lat': 200, 'lon': 200}
+                                    ).load()
+    worldclim_reprojected = nearest_neighbor_variable(worldclim_subset, ds).load()
+    worldclim_reprojected = worldclim_reprojected.drop(['lat', 'lon'])
+    if timestep=='monthly':
+        seasonal_worldclim = worldclim_seasons(worldclim_reprojected).load()
+        print('seasonal!')
+        static_vars = [f'BIO{str(n).zfill(2)}' for n in range(1, 20)]
+        static_worldclim = worldclim_reprojected[static_vars]
+        return xr.merge([ds, seasonal_worldclim, static_worldclim])
+    elif timestep=='annual':
+        return xr.merge([ds, worldclim_reprojected])
 
 
 def get_igbp(data, tiles, year):
@@ -248,11 +214,10 @@ def get_igbp(data, tiles, year):
         data=igbp, lats=data.y, lons=data.x, years=year
     )
 
-    data['igbp'] = igbp_records.igbp
+    data['igbp'] = igbp_records.igbp.drop(['spatial_ref']).astype('int16')
 
     del igbp
 
-    # assert (ds.unique_index == igbp_records.unique_index).mean() == 1
     return data
 
 
@@ -275,7 +240,14 @@ def get_treecover2000(tiles, data):
     del hansen
 
     return data
-    
+
+
+def add_all_variables(data, tiles, year):
+    data = get_aster(data, tiles)
+    data = get_worldclim(data)
+    data = get_igbp(data, tiles, year)
+    data = get_treecover2000(tiles, data)
+    return data.load()
 # def predict(df ):
 #     # load model
     

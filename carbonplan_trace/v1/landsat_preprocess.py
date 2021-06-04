@@ -21,7 +21,7 @@ from datetime import datetime
 import json
 import zarr
 import awswrangler as wr
-
+from .tests import spans_utm_border, test_proj
 
 def test_credentials(aws_session, 
                             canary_file='s3://usgs-landsat/collection02/level-2/standard/'+\
@@ -62,7 +62,7 @@ def cloud_qa(item):
     return cog_mask
 
 
-def grab_ds(item, bands_of_interest, cog_mask, utm_zone):
+def grab_ds(item, bands_of_interest, cog_mask, utm_zone, utm_letter):
     '''
     Package up a dataset of multiple bands from one scene, masked
     according to the QA/QC mask.
@@ -77,7 +77,11 @@ def grab_ds(item, bands_of_interest, cog_mask, utm_zone):
     cog_mask: xarray data array
         The mask specific to this scene which you'll use to 
         exclude poor quality observations
-    utm_zone: int
+    utm_zone: str
+        The UTM zone used in the projection of this landsat scene. This
+        defined by USGS and sometimes doesn't match what you'd expect
+        so is important to carry through in the processing.
+    utm_letter: str
         The UTM zone used in the projection of this landsat scene. This
         defined by USGS and sometimes doesn't match what you'd expect
         so is important to carry through in the processing.
@@ -103,7 +107,8 @@ def grab_ds(item, bands_of_interest, cog_mask, utm_zone):
     # fill value is 0; let's switch it to nan
     ds = ds.where(ds != 0)  
     ds = ds.where(cog_mask<2)
-    ds.attrs["utm_zone"] = utm_zone
+    ds.attrs["utm_zone_number"] = utm_zone
+    ds.attrs["utm_zone_letter"] = utm_letter
     ds = calc_NDVI(ds)
     ds = calc_NDII(ds)
     return ds
@@ -128,13 +133,16 @@ def average_stack_of_scenes(ds_list):
         Dataset of dimensions x, y, bands (corresponding to bands_of_interest)
     '''
     utm_zone = []
+    utm_letter = []
     for ds in ds_list:
         utm_zone.append(ds.attrs['utm_zone'])
-    if len(set(utm_zone))>1:
+        utm_letter.append(ds.attrs['utm_letter'])
+    if (len(set(utm_zone))>1) or (len(set(utm_letter))>1):
         print('WATCH OUT: youre averaging scenes from multiple utm projections!!')
         
     full_ds = xr.concat(ds_list, dim='scene').mean(dim='scene')
     full_ds.attrs['utm_zone'] = utm_zone[0]
+    full_ds.attrs['utm_letter'] = utm_letter[0]
     return full_ds
 
 
@@ -175,11 +183,25 @@ def access_credentials():
         secret_access_key = credentials[2].split('=')[1]
     return access_key_id, secret_access_key
 
+def grab_scene_lats(metadata):
+    '''
+    Grab latitude values for scene corners.
+    '''
 
-def get_scene_utm_zone(url):
+    lats = []
+    for key in ['CORNER_LL_LAT_PRODUCT', 'CORNER_LR_LAT_PRODUCT', 'CORNER_UL_LAT_PRODUCT',
+               'CORNER_UR_LAT_PRODUCT']:
+        lats.append(float(metadata[key]))
+    upper_right_corner_proj = (float(metadata['CORNER_UR_PROJECTION_X_PRODUCT']),
+                        float(metadata['CORNER_UR_PROJECTION_Y_PRODUCT']))
+    upper_right_corner_coords = (float(metadata['CORNER_UR_LON_PRODUCT']),
+                        float(metadata['CORNER_UR_LAT_PRODUCT']))
+    return lats, upper_right_corner_proj, upper_right_corner_coords
+
+def get_scene_utm_info(url):
 
     '''
-    Get the USGS-provided UTM zone for the specific landsat scene
+    Get the USGS-provided UTM zone and letter for the specific landsat scene
 
     Parameters
     ----------
@@ -189,6 +211,7 @@ def get_scene_utm_zone(url):
     Returns
     -------
     utm_zone: str
+    utm_letter: str
 
     '''
 
@@ -199,7 +222,12 @@ def get_scene_utm_zone(url):
                                  RequestPayer='requester')
     metadata = json.loads(data['Body'].read())
     utm_zone = metadata['LANDSAT_METADATA_FILE']['PROJECTION_ATTRIBUTES']['UTM_ZONE']
-    return utm_zone
+    lats, upper_right_corner_proj, upper_right_corner_coords = grab_scene_lats(metadata['LANDSAT_METADATA_FILE']['PROJECTION_ATTRIBUTES'])
+    if spans_utm_border(lats):
+        utm_zone_letter = test_proj(upper_right_corner_coords, upper_right_corner_proj, int(utm_zone))
+    else:
+        utm_zone_letter = calculate_zone_letter(lats[0])
+    return utm_zone, utm_zone_letter
 
     
 def calc_NDVI(ds):
@@ -286,11 +314,11 @@ def scene_seasonal_average(path, row, year, bucket, access_key_id, secret_access
             for file in valid_files:
                 scene_id = file[-40:]
                 url = 's3://{}/{}'.format(file, scene_id)
-                utm_zone = get_scene_utm_zone(url)
+                utm_zone, utm_letter = get_scene_utm_info(url)
                 cloud_mask_url = url+'_SR_CLOUD_QA.TIF'
                 cog_mask = cloud_qa(cloud_mask_url)
-                ds_list.append(grab_ds(url, bands_of_interest, cog_mask, utm_zone))
+                ds_list.append(grab_ds(url, bands_of_interest, cog_mask, utm_zone, utm_letter))
             seasonal_average = average_stack_of_scenes(ds_list)
             
             write_out(seasonal_average.chunk({'band': 6, 'x': 1024, 'y': 1024}), mapper)
-            return url
+            return metadata_list

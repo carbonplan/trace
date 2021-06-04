@@ -6,6 +6,8 @@ import numpy as np
 import xarray as xr
 from gcsfs import GCSFileSystem
 from pyproj import Transformer
+import awswrangler as wr
+import boto3
 
 
 def save_to_zarr(ds, url, list_of_variables=None, mode='w', append_dim=None):
@@ -152,6 +154,13 @@ def open_burned_area_data(tiles):
 
     return open_and_combine_lat_lon_data(folder, tiles)
 
+def write_parquet(df, out_path, access_key_id, secret_access_key):
+    wr.s3.to_parquet(
+    df=df, index=True,
+    path=out_path, 
+    boto3_session=boto3.Session(aws_access_key_id=access_key_id,
+                                          aws_secret_access_key=secret_access_key)
+    )
 
 def find_matching_records(data, lats, lons, years=None):
     """
