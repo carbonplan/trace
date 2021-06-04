@@ -1,6 +1,12 @@
+#!/usr/bin/env python3
+
 import dask
 import fsspec
+import geopandas
 import numcodecs
+import numpy as np
+import pandas as pd
+import regionmask
 import xarray as xr
 from dask.distributed import Client
 
@@ -12,6 +18,10 @@ from carbonplan_trace.v0.data.load import open_hansen_change_tile
 tile_template = "s3://carbonplan-climatetrace/v0.1/tiles/30m/{tile_id}.zarr"
 coarse_tile_template = "s3://carbonplan-climatetrace/v0.1/tiles/3000m/{tile_id}.zarr"
 coarse_full_template = "s3://carbonplan-climatetrace/v0.1/global/3000m/raster.zarr"
+shapes_file = 's3://carbonplan-climatetrace/country-shapes.json'
+# TODO: update to remote location
+shapes_file = '../../notebooks/countries.shp'
+rollup_template = 's3://carbonplan-climatetrace/v0.1/country_rollups.csv'
 chunks = {"lat": 4000, "lon": 4000, "year": 2}
 coarse_chunks = {"lat": 400, "lon": 400, "year": -1}
 COARSENING_FACTOR = 100
@@ -86,6 +96,41 @@ def combine_all_tiles(urls):
         ds.to_zarr(mapper, consolidated=True)
 
 
+def rollup_shapes():
+    print('rollup_shapes')
+
+    ds = xr.open_zarr(coarse_full_template, consolidated=True)
+    shapes_df = geopandas.read_file(shapes_file)
+
+    shapes_df['numbers'] = np.arange(len(shapes_df))
+    mask = regionmask.mask_geopandas(shapes_df, ds.lon, ds.lat, numbers='numbers')
+
+    # this will trigger dask compute
+    df = ds['emissions'].groupby(mask).sum().to_pandas()
+
+    # cleanup dataframe
+    names = shapes_df['alpha3']
+    columns = {k: names[int(k)] for k in df.columns}
+    df = df.rename(columns=columns)
+
+    # convert to teragrams
+    df = df / 1e9
+
+    # package in climate trace format
+    df_out = df.stack().reset_index()
+    df_out = df_out.sort_values(by=['region', 'year']).reset_index(drop=True)
+
+    df_out['begin_date'] = pd.to_datetime(df_out.year, format='%Y')
+    df_out['end_date'] = pd.to_datetime(df_out.year + 1, format='%Y')
+
+    df_out = df_out.drop(columns=['year']).rename(columns={0: 'tCO2eq', 'region': 'iso3_country'})
+    df_out = df_out[['iso3_country', 'begin_date', 'end_date', 'tCO2eq']]
+
+    # write out
+    df_out.to_csv(rollup_template, index=False)
+    print(f'writing data to {rollup_template}')
+
+
 def main():
     with Client(threads_per_worker=1, n_workers=16) as client:
         print(client)
@@ -101,6 +146,8 @@ def main():
                 client.restart()
 
         combine_all_tiles(coarse_urls)
+
+        rollup_shapes()
 
 
 if __name__ == "__main__":
