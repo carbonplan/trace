@@ -51,8 +51,8 @@ def reproject_dataset(ds, zone=None):
     min_lat, max_lat, min_lon, max_lon = check_mins_maxes(ds)
     target, tiles = create_target(min_lat, max_lat, min_lon, max_lon)
     # the numbers aren't too big but if we normalize they might turn into decimals
-    reprojected = ds.rio.reproject_match(target).astype('float32') 
-    reprojected = reprojected.reflectance.to_dataset(dim='band').drop('spatial_ref').load()
+    reprojected = ds.rio.reproject_match(target).astype('int16').load()
+    del ds
     return reprojected, tiles
 
 def dataset_to_tabular(ds):
@@ -125,12 +125,6 @@ def add_lat_lon_to_table(df, zone_number, zone_letter):
     projection_df = pd.DataFrame(lat_lon_info, columns=projected_column_names, index=df.index)
     updated_df = pd.concat([df, projection_df], axis=1)
     return updated_df
-# @dask.delayed
-# def predict():
-    # develop inference dataframe
-    # load_xgb_model 
-    # run model <-- from cindy
-    # returns string which is path to dataset it wrote
 
 def load_xgb_model(model_path, local_folder='./'):
     if model_path.startswith('s3'):
@@ -165,21 +159,22 @@ def predict(model_path, path, row, year, access_key_id,
                 secret_access_key, output_write_bucket=None, 
                                 input_write_bucket=None,
                                 bands_of_interest='all',
-                                season=season):
+                                season='JJA'):
     model = load_xgb_model(model_path)
     # create the landsat scene for that year
     landsat_ds = scene_seasonal_average(path, row, year, access_key_id, 
                         secret_access_key, write_bucket=None,
                             bands_of_interest='all',
-                            season='JJA')
+                            season=season)
+
     # add in other datasets
-    landsat_zone = landsat_ds.zone_number+landsat_ds.zone_letter
+    landsat_zone = landsat_ds.utm_zone_number+landsat_ds.utm_zone_letter
     data, tiles = reproject_dataset(landsat_ds, zone=landsat_zone)
     
     del landsat_ds
 
-    data = add_all_variables(data, tiles, year)
-    
+    data = add_all_variables(data, tiles, year).load()
+
     df = dataset_to_tabular(data)
 
     del data

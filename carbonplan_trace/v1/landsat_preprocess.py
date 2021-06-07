@@ -21,7 +21,7 @@ from datetime import datetime
 import json
 import zarr
 import awswrangler as wr
-from .tests import spans_utm_border, test_proj
+from .tests import spans_utm_border, test_proj, calculate_zone_letter
 
 def test_credentials(aws_session, 
                             canary_file='s3://usgs-landsat/collection02/level-2/standard/'+\
@@ -107,11 +107,12 @@ def grab_ds(item, bands_of_interest, cog_mask, utm_zone, utm_letter):
     # fill value is 0; let's switch it to nan
     ds = ds.where(ds != 0)  
     ds = ds.where(cog_mask<2)
+    ds = ds.reflectance.to_dataset(dim='band').drop('spatial_ref')
     ds.attrs["utm_zone_number"] = utm_zone
     ds.attrs["utm_zone_letter"] = utm_letter
     ds = calc_NDVI(ds)
     ds = calc_NDII(ds)
-    return ds
+    return ds.load()
 
 
 def average_stack_of_scenes(ds_list):
@@ -135,14 +136,13 @@ def average_stack_of_scenes(ds_list):
     utm_zone = []
     utm_letter = []
     for ds in ds_list:
-        utm_zone.append(ds.attrs['utm_zone'])
-        utm_letter.append(ds.attrs['utm_letter'])
+        utm_zone.append(ds.attrs['utm_zone_number'])
+        utm_letter.append(ds.attrs['utm_zone_letter'])
     if (len(set(utm_zone))>1) or (len(set(utm_letter))>1):
         print('WATCH OUT: youre averaging scenes from multiple utm projections!!')
-        
-    full_ds = xr.concat(ds_list, dim='scene').mean(dim='scene')
-    full_ds.attrs['utm_zone'] = utm_zone[0]
-    full_ds.attrs['utm_letter'] = utm_letter[0]
+    full_ds = xr.concat(ds_list, dim='scene').mean(dim='scene').load()
+    full_ds.attrs['utm_zone_number'] = utm_zone[0]
+    full_ds.attrs['utm_zone_letter'] = utm_letter[0]
     return full_ds
 
 
@@ -183,7 +183,7 @@ def access_credentials():
         secret_access_key = credentials[2].split('=')[1]
     return access_key_id, secret_access_key
 
-def grab_scene_lats(metadata):
+def grab_scene_coord_info(metadata):
     '''
     Grab latitude values for scene corners.
     '''
@@ -222,11 +222,13 @@ def get_scene_utm_info(url):
                                  RequestPayer='requester')
     metadata = json.loads(data['Body'].read())
     utm_zone = metadata['LANDSAT_METADATA_FILE']['PROJECTION_ATTRIBUTES']['UTM_ZONE']
-    lats, upper_right_corner_proj, upper_right_corner_coords = grab_scene_lats(metadata['LANDSAT_METADATA_FILE']['PROJECTION_ATTRIBUTES'])
+
+    lats, upper_right_corner_proj, upper_right_corner_coords = grab_scene_coord_info(metadata['LANDSAT_METADATA_FILE']['PROJECTION_ATTRIBUTES'])
+
     if spans_utm_border(lats):
         utm_zone_letter = test_proj(upper_right_corner_coords, upper_right_corner_proj, int(utm_zone))
     else:
-        utm_zone_letter = calculate_zone_letter(lats[0])
+        (_x, _y, calculated_zone_number, utm_zone_letter) = utm.from_latlon(upper_right_corner_coords[1], upper_right_corner_coords[0], force_zone_number=int(utm_zone))
     return utm_zone, utm_zone_letter
 
     
@@ -247,8 +249,8 @@ def calc_NDVI(ds):
         dataset with NDVI added as variable
     '''
 
-    nir = ds.sel(band='SR_B4')['reflectance'].drop('band')
-    red = ds.sel(band='SR_B3')['reflectance'].drop('band')
+    nir = ds['SR_B4']
+    red = ds['SR_B3']
     ds['NDVI'] = ( nir - red ) / ( nir + red)
     return ds
 
@@ -270,8 +272,8 @@ def calc_NDII(ds):
     ds: xarray Dataset
         dataset with NDII added as variable
     '''
-    nir = ds.sel(band='SR_B4')['reflectance'].drop('band')
-    swir = ds.sel(band='SR_B5')['reflectance'].drop('band')
+    nir = ds['SR_B4']
+    swir = ds['SR_B5']
     ds['NDII'] = ( nir - swir ) / ( nir + swir)
     return ds
 
@@ -293,7 +295,6 @@ def scene_seasonal_average(path, row, year, access_key_id, secret_access_key,
     with dask.config.set(scheduler='single-threaded'): # this? **** #threads #single-threaded # threads??
         with rio.Env(aws_session):
             test_credentials(aws_session)
-
             # all of this is just to get the right formatting stuff to access the scenes
 
             landsat_bucket = 's3://usgs-landsat/collection02/level-2/standard/tm/{}/{:03d}/{:03d}/'
@@ -317,11 +318,12 @@ def scene_seasonal_average(path, row, year, access_key_id, secret_access_key,
                 cog_mask = cloud_qa(cloud_mask_url)
                 ds_list.append(grab_ds(url, bands_of_interest, cog_mask, utm_zone, utm_letter))
             seasonal_average = average_stack_of_scenes(ds_list)
+            del ds_list
             if write_bucket is not None:
                 # set where you'll save the final seasonal average
                 url = f'{write_bucket}{path}/{row}/{year}/{season}_reflectance.zarr'
                 mapper = fs.get_mapper(url)
-                write_out(seasonal_average.chunk({'band': 6, 'x': 1024, 'y': 1024}), mapper)
+                write_out(seasonal_average.chunk({'x': 1024, 'y': 1024}), mapper)
                 return url
             else:
-                return seasonal_average.chunk({'band': 6, 'x': 1024, 'y': 1024})
+                return seasonal_average.chunk({'x': 1024, 'y': 1024}).load()
