@@ -202,7 +202,7 @@ def get_worldclim(ds, timestep='annual'):
         seasonal_worldclim = worldclim_seasons(worldclim_reprojected).load()
         print('seasonal!')
         static_vars = [f'BIO{str(n).zfill(2)}' for n in range(1, 20)]
-        static_worldclim = worldclim_reprojected[static_vars]
+        static_worldclim = worldclim_reprojected[static_vars].astype('int8')
         return xr.merge([ds, seasonal_worldclim, static_worldclim])
     elif timestep=='annual':
         return xr.merge([ds, worldclim_reprojected])
@@ -214,7 +214,7 @@ def get_igbp(data, tiles, year):
         data=igbp, lats=data.y, lons=data.x, years=year
     )
 
-    data['igbp'] = igbp_records.igbp.drop(['spatial_ref']).astype('int16')
+    data['igbp'] = igbp_records.igbp.drop(['spatial_ref']).astype('int8')
 
     del igbp
 
@@ -235,7 +235,7 @@ def get_treecover2000(tiles, data):
 
     hansen_records = utils.find_matching_records(data=hansen, lats=data.y, lons=data.x)
     # assert (data.unique_index == hansen_records.unique_index).mean() == 1
-    data['treecover2000_mean'] = hansen_records['treecover2000']
+    data['treecover2000_mean'] = hansen_records['treecover2000'].astype('int8')
 
     del hansen
 
