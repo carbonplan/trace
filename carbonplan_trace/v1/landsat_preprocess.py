@@ -275,8 +275,9 @@ def calc_NDII(ds):
     ds['NDII'] = ( nir - swir ) / ( nir + swir)
     return ds
 
-@dask.delayed
-def scene_seasonal_average(path, row, year, bucket, access_key_id, secret_access_key,
+# @dask.delayed
+def scene_seasonal_average(path, row, year, access_key_id, secret_access_key,
+                            write_bucket=None,
                            bands_of_interest='all', season='JJA'):
     '''
     Given location/time specifications will grab all valid scenes,
@@ -293,9 +294,6 @@ def scene_seasonal_average(path, row, year, bucket, access_key_id, secret_access
         with rio.Env(aws_session):
             test_credentials(aws_session)
 
-            # set where you'll save the final seasonal average
-            url = f'{bucket}{path}/{row}/{year}/{season}_reflectance.zarr'
-            mapper = fs.get_mapper(url) #used to be fsspec
             # all of this is just to get the right formatting stuff to access the scenes
 
             landsat_bucket = 's3://usgs-landsat/collection02/level-2/standard/tm/{}/{:03d}/{:03d}/'
@@ -319,6 +317,11 @@ def scene_seasonal_average(path, row, year, bucket, access_key_id, secret_access
                 cog_mask = cloud_qa(cloud_mask_url)
                 ds_list.append(grab_ds(url, bands_of_interest, cog_mask, utm_zone, utm_letter))
             seasonal_average = average_stack_of_scenes(ds_list)
-            
-            write_out(seasonal_average.chunk({'band': 6, 'x': 1024, 'y': 1024}), mapper)
-            return metadata_list
+            if write_bucket is not None:
+                # set where you'll save the final seasonal average
+                url = f'{write_bucket}{path}/{row}/{year}/{season}_reflectance.zarr'
+                mapper = fs.get_mapper(url)
+                write_out(seasonal_average.chunk({'band': 6, 'x': 1024, 'y': 1024}), mapper)
+                return url
+            else:
+                return seasonal_average.chunk({'band': 6, 'x': 1024, 'y': 1024})

@@ -1,4 +1,5 @@
 from .link_biomass_landsat import add_landsat_utm_zone
+from .landsat_preprocess import scene_seasonal_average
 from ..v1 import utils
 import fsspec
 import xgboost as xgb 
@@ -13,6 +14,7 @@ from datetime import datetime, timezone
 from carbonplan_trace.v0.data import cat
 import dask
 from ..v1 import load
+from carbonplan_trace.v1.model import features
 
 fs = S3FileSystem(profile='default', requester_pays=True)
 
@@ -146,10 +148,57 @@ def add_all_variables(data, tiles, year):
     data = load.igbp(data, tiles, year)
     data = load.treecover2000(tiles, data)
     return data.load()
-# def predict(df ):
-#     # load model
+
+def make_inference(input_data, model, features):
+    """
+    input_data is assumed to be a pandas dataframe, and model uses standard sklearn API with .predict
+    """
+    sub = input_data.dropna(subset=features)
+    sub = sub.loc[(~(sub.NDVI == np.inf) & ~(sub.NDII == np.inf))]
+    X = sub[features]
+    X['burned'] = X.burned.astype(float)
+    sub['biomass'] = model.predict(X)
+    return sub[['lat', 'lon', 'biomass']]
+
+
+def predict(model_path, path, row, year, access_key_id, 
+                secret_access_key, output_write_bucket=None, 
+                                input_write_bucket=None,
+                                bands_of_interest='all',
+                                season=season):
+    model = load_xgb_model(model_path)
+    # create the landsat scene for that year
+    landsat_ds = scene_seasonal_average(path, row, year, access_key_id, 
+                        secret_access_key, write_bucket=None,
+                            bands_of_interest='all',
+                            season='JJA')
+    # add in other datasets
+    landsat_zone = landsat_ds.zone_number+landsat_ds.zone_letter
+    data, tiles = reproject_dataset(landsat_ds, zone=landsat_zone)
     
+    del landsat_ds
+
+    data = add_all_variables(data, tiles, year)
+    
+    df = dataset_to_tabular(data)
+
+    del data
+
+    if input_write_bucket is not None:
+        utils.write_parquet(df, input_write_bucket, access_key_id, secret_access_key)
+    
+    prediction = make_inference(df, model, features)
+
+    if output_write_bucket is not None:
+        utils.write_parquet(prediction, output_write_bucket, access_key_id, secret_access_key)
+    
+    else:
+        return prediction
+
+
+
 #     # prediction
+
 #     # save out x/y (specific to row/path scene) and lat/lon (from hansen grid) (plus biomass)
 
 # def repackage():
