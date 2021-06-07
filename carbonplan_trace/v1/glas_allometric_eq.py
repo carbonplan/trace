@@ -586,7 +586,6 @@ def assign_ecoregion_values(data, tiles):
     # ecoregions map contains Ecoregions2017, NLCD, and EOSD data
     ecoregions_mask = utils.open_ecoregion_data(tiles)
     eco_records = utils.find_matching_records(data=ecoregions_mask, lats=data.lat, lons=data.lon)
-    assert (data.unique_index == eco_records.unique_index).mean() == 1
     for v in eco_records:
         data[v] = eco_records[v]
     del ecoregions_mask
@@ -608,7 +607,6 @@ def assign_ecoregion_values(data, tiles):
     igbp_records = utils.find_matching_records(
         data=igbp, lats=data.lat, lons=data.lon, years=data.datetime.dt.year
     )
-    assert (data.unique_index == igbp_records.unique_index).mean() == 1
     data['igbp'] = igbp_records.igbp
     del igbp
 
@@ -620,7 +618,7 @@ def assign_treecover_values(data, tiles):
     for tile in tiles:
         lat, lon = utils.get_lat_lon_tags_from_tile_path(tile)
         # get Hansen data
-        hansen_tile = cat.hansen_2018(variable='treecover2000', lat=lat, lon=lon).to_dask()
+        hansen_tile = cat.hansen_change(variable='treecover2000', lat=lat, lon=lon).to_dask()
         hansen_tile = hansen_tile.rename({"x": "lon", "y": "lat"}).squeeze(drop=True)
         hansen.append(hansen_tile.to_dataset(name='treecover2000', promote_attrs=True))
     hansen = xr.combine_by_coords(hansen, combine_attrs="drop_conflicts").chunk(
@@ -628,7 +626,6 @@ def assign_treecover_values(data, tiles):
     )
 
     hansen_records = utils.find_matching_records(data=hansen, lats=data.lat, lons=data.lon)
-    assert (data.unique_index == hansen_records.unique_index).mean() == 1
     data['treecover2000_mean'] = hansen_records['treecover2000']
 
     del hansen
@@ -639,7 +636,6 @@ def assign_treecover_values(data, tiles):
 def assign_burned_area_values(data, tiles):
     burned_area = utils.open_burned_area_data(tiles)
     burned_area_rec = utils.find_matching_records(data=burned_area, lats=data.lat, lons=data.lon)
-    assert (data.unique_index == burned_area_rec.unique_index).mean() == 1
 
     # if the GLAS shot is burned after year 2000 but prior to year of GLAS acquisition
     # set "burned" to True, else to False
@@ -781,7 +777,13 @@ def filter_on_time_of_year(ds):
 
     Timing of campaigns retrieved from https://icesat.gsfc.nasa.gov/icesat/missionevents.php, https://nsidc.org/data/icesat/orbit_grnd_trck.html
     """
-    # print(f'{ds.dims["unique_index"]} records before filtering based on time')
+    d0 = datetime(2000, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    if ds.time.isnull().sum() > 0:
+        print('filling nulls')
+        filler = ds.datetime.fillna(d0).astype(int) / 1e9
+        ds['time'] = ds.time.fillna(filler)
+
+    print(f'{ds.dims["unique_index"]} records before filtering based on time')
     # filter out campaigns 2E and 2F according to Farina et al 2018 (data after mar 1st, 2019)
     d = datetime(2009, 3, 1, 0, 0, 0, tzinfo=timezone.utc).timestamp()
     ds = ds.where(ds.time < d, drop=True)
@@ -789,22 +791,14 @@ def filter_on_time_of_year(ds):
     L1B_start = datetime(2003, 3, 20, 0, 0, 0, tzinfo=timezone.utc).timestamp()
     L1B_end = datetime(2003, 3, 29, 0, 0, 0, tzinfo=timezone.utc).timestamp()
     ds = ds.where(((ds.time < L1B_start) | (ds.time > L1B_end)), drop=True)
-    # print(f'{ds.dims["unique_index"]} records aftering filtering out campaign L2E, L2F, L1B')
+    print(f'{ds.dims["unique_index"]} records aftering filtering out campaign L2E, L2F, L1B')
 
     # define regions north or south of the tropics
     special_eq = ds.allometric_eq.isin(
         ['conus_conifer_popescu_2011', 'palearctic_shang_and_chazette_2014']
     )
-    north = (ds.lat > 23.5) & (
-        ~ds.allometric_eq.isin(
-            ['afrotropic', 'tropical_asia', 'tropical_neotropic', 'extratropical_neotropic']
-        )
-    )
-    south = (ds.lat < -23.5) & (
-        ~ds.allometric_eq.isin(
-            ['afrotropic', 'tropical_asia', 'tropical_neotropic', 'extratropical_neotropic']
-        )
-    )
+    north = ds.lat > 23.5
+    south = ds.lat < -23.5
 
     # define time
     # 2006-10-25 to 2006-11-27
@@ -820,8 +814,8 @@ def filter_on_time_of_year(ds):
     )
     south_leaf_on = (
         (ds.datetime.dt.month < 5)
-        & ((ds.time >= L3G_start) & (ds.time <= L3G_end))
-        & ((ds.time >= L2D_start) & (ds.time <= L2D_end))
+        | ((ds.time >= L3G_start) & (ds.time <= L3G_end))
+        | ((ds.time >= L2D_start) & (ds.time <= L2D_end))
     )
     # if a record is: 1) in the north, 2) not in north leaf on time period, and 3) not in special eq, drop them
     ds = ds.where(~(north & ~north_leaf_on & ~special_eq), drop=True)
@@ -830,7 +824,7 @@ def filter_on_time_of_year(ds):
     # if a record in: 1) in the special eq, 2) in the north, 3) not in the north leaf off (aka south leaf on) time period, drop them
     ds = ds.where(~(north & ~south_leaf_on & special_eq), drop=True)
     ds = ds.where(~(south & ~north_leaf_on & special_eq), drop=True)
-    # print(f'{ds.dims["unique_index"]} records aftering filtering based on leaf on/off conditions')
+    print(f'{ds.dims["unique_index"]} records aftering filtering based on leaf on/off conditions')
 
     return ds
 
@@ -848,14 +842,11 @@ def calculate_biomass(ds):
         else:
             missing_eq_name.append(eq_name)
 
-    out = xr.concat(out, dim='unique_index')
     # if len(missing_eq_name) > 0:
     #     print(
     #         f'Dropping {ds.dims["unique_index"] - out.dims["unique_index"]} records out of {ds.dims["unique_index"]} due to missing equations {missing_eq_name}'
     #     )
-    # assert out.biomass.isnull().mean() == 0
-
-    return out
+    return xr.concat(out, dim='unique_index')
 
 
 def post_process_biomass(ds):
@@ -894,11 +885,9 @@ def apply_allometric_equation(ds, min_lat, max_lat, min_lon, max_lon):
 
     # assign allometric eq
     ds["allometric_eq"] = assign_allometric_eq(ds)
-    # print('before filtering on time: current time is ', time.strftime("%H:%M:%S", time.localtime()))
     ds = filter_on_time_of_year(ds)
 
     # apply allometric equations
-    # print('before biomass: current time is ', time.strftime("%H:%M:%S", time.localtime()))
     ds = calculate_biomass(ds)
     ds = post_process_biomass(ds)
 
