@@ -3,15 +3,7 @@ from ..v1 import utils
 import fsspec
 from carbonplan_trace.v0.data import cat
 
-
-def nearest_neighbor_variable(data_ds, template_ds):#, dtype=TODO):
-    nearest_variables = data_ds.sel(lon=template_ds.x, 
-                      lat=template_ds.y,
-                      method='nearest')
-
-    return nearest_variables.astype('int16')
-
-def aster(ds, tiles, lat_lon_box=None): # tile_names
+def aster(ds, tiles, lat_lon_box=None, dtype='int16'):
     '''
     Note: ds must have coordinates as lat/lon and not x/y (have different names)
     otherwise the coordinates will not be turned into 
@@ -19,45 +11,35 @@ def aster(ds, tiles, lat_lon_box=None): # tile_names
     full_aster = utils.open_and_combine_lat_lon_data("gs://carbonplan-climatetrace/intermediates/aster/", 
                                                     tiles=tiles, 
                                                     lat_lon_box=lat_lon_box)
-    nearest_variables = nearest_neighbor_variable(full_aster, ds).load().drop(['spatial_ref', 'lat', 'lon'])
-    return xr.merge([ds, nearest_variables])
+    selected_aster = find_matching_records(full_aster, lats=ds.y, lons=ds.x, dtype=dtype).load().drop(['spatial_ref'])
+    return xr.merge([ds, selected_aster])
 
-def worldclim(ds, timestep='annual'):#, dtype=TODO):
-    if timestep=='monthly':
-        mapper = fsspec.get_mapper('gs://carbonplan-data/raw/worldclim/30s/raster.zarr')
-        worldclim_ds = xr.open_zarr(mapper, consolidated=True).rename({"x": "lon", "y": "lat"})
-
-    elif timestep=='annual':
-        mapper = fsspec.get_mapper('s3://carbonplan-climatetrace/v1/data/intermediates/annual_averaged_worldclim.zarr')
-        worldclim_ds = xr.open_zarr(mapper, consolidated=True)
+def worldclim(ds, dtype='int16'):
+    mapper = fsspec.get_mapper('s3://carbonplan-climatetrace/v1/data/intermediates/annual_averaged_worldclim.zarr')
+    worldclim_ds = xr.open_zarr(mapper, consolidated=True)
     worldclim_subset = worldclim_ds.sel(lon=slice(float(ds.x.min().values), float(ds.x.max().values)),
                             lat=slice(float(ds.y.max().values), float(ds.y.min().values))
                                     ).load()
-    worldclim_reprojected = nearest_neighbor_variable(worldclim_subset, ds).load()
-    worldclim_reprojected = worldclim_reprojected.drop(['lat', 'lon'])
-    if timestep=='monthly':
-        seasonal_worldclim = worldclim_seasons(worldclim_reprojected).load()
-        print('seasonal!')
-        static_vars = [f'BIO{str(n).zfill(2)}' for n in range(1, 20)]
-        static_worldclim = worldclim_reprojected[static_vars].astype('int8')
-        return xr.merge([ds, seasonal_worldclim, static_worldclim])
-    elif timestep=='annual':
-        return xr.merge([ds, worldclim_reprojected])
+    worldclim_reprojected = find_matching_records(worldclim_subset, ds.y, ds.x, dtype=dtype).load()
+    for var in worldclim_reprojected.data_vars:
+        ds[var] = worldclim_reprojected[var]
+        del worldclim_reprojected[var]
+    return ds
 
 
-def igbp(data, tiles, year, lat_lon_box=None):
+def igbp(data, tiles, year, lat_lon_box=None, dtype='int8'):
     igbp = utils.open_igbp_data(tiles, lat_lon_box=lat_lon_box)
     igbp_records = utils.find_matching_records(
-        data=igbp, lats=data.y, lons=data.x, years=year
+        data=igbp, lats=data.y, lons=data.x, years=year, dtype=dtype
     )
-    data['burned'] = igbp_records.igbp.drop(['spatial_ref']).astype('int8')
+    data['burned'] = igbp_records.igbp.drop(['spatial_ref'])
 
     del igbp
 
     return data
 
 
-def treecover2000(tiles, data, lat_lon_box=None):
+def treecover2000(tiles, data, lat_lon_box=None, dtype='int8'):
     hansen = []
     for tile in tiles:
         lat, lon = utils.get_lat_lon_tags_from_tile_path(tile)
@@ -74,9 +56,8 @@ def treecover2000(tiles, data, lat_lon_box=None):
         {'lat': 2000, 'lon': 2000}
     )
 
-    hansen_records = utils.find_matching_records(data=hansen, lats=data.y, lons=data.x)
-    # assert (data.unique_index == hansen_records.unique_index).mean() == 1
-    data['treecover2000_mean'] = hansen_records['treecover2000'].astype('int8')
+    hansen_records = utils.find_matching_records(data=hansen, lats=data.y, lons=data.x, dtype=dtype)
+    data['treecover2000_mean'] = hansen_records['treecover2000']
 
     del hansen
 
@@ -98,6 +79,7 @@ def load_biomass(ul_lat, ul_lon):
         scene-specific UTM zone
 
     '''
+    # TODO need to fix this to open in the same way as for the other datasets (by passing the bounding box)
     file_mapper = fs.get_mapper('carbonplan-climatetrace/v1/data/intermediates/biomass/{}N_{}W.zarr'.format(ul_lat, ul_lon))
 
     ds = xr.open_zarr(file_mapper, consolidated=True)

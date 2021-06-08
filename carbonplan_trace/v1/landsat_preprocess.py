@@ -21,7 +21,7 @@ from datetime import datetime
 import json
 import zarr
 import awswrangler as wr
-from .tests import spans_utm_border, test_proj
+from .utils import spans_utm_border, verify_projection
 
 def test_credentials(aws_session, 
                             canary_file='s3://usgs-landsat/collection02/level-2/standard/'+\
@@ -54,7 +54,7 @@ def cloud_qa(item):
     Given an item grab the cloud mask for that scene
     '''
 
-    if type(item)==str:
+    if isinstance(item, str):
         qa_path = item
     else:
         qa_path = fix_link(item._stac_obj.assets['SR_CLOUD_QA.TIF']['href'])
@@ -142,8 +142,12 @@ def average_stack_of_scenes(ds_list):
     for ds in ds_list:
         utm_zone.append(ds.attrs['utm_zone_number'])
         utm_letter.append(ds.attrs['utm_zone_letter'])
-    if (len(set(utm_zone))>1) or (len(set(utm_letter))>1):
-        print("WATCH OUT: you're averaging scenes from multiple utm projections!!")
+    # WATCH OUT: you don't want to average scenes from multiple utm projections!!
+    # thank goodness we have these two swanky assertions below
+    # TODO: this could probably be moved to a test
+    assert len(set(utm_zone))==1
+    assert len(set(utm_letter))==1
+
     full_ds = xr.concat(ds_list, dim='scene').mean(dim='scene').load()
     for var in ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7']:
         full_ds[var] = full_ds[var].astype('int16')
@@ -237,7 +241,7 @@ def get_scene_utm_info(url):
     lats, upper_right_corner_proj, upper_right_corner_coords = grab_scene_coord_info(metadata['LANDSAT_METADATA_FILE']['PROJECTION_ATTRIBUTES'])
 
     if spans_utm_border(lats):
-        utm_zone_letter = test_proj(upper_right_corner_coords, upper_right_corner_proj, int(utm_zone))
+        utm_zone_letter = verify_projection(upper_right_corner_coords, upper_right_corner_proj, int(utm_zone))
     else:
         (_x, _y, calculated_zone_number, utm_zone_letter) = utm.from_latlon(upper_right_corner_coords[1], upper_right_corner_coords[0], force_zone_number=int(utm_zone))
     return utm_zone, utm_zone_letter

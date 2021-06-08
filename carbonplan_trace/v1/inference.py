@@ -21,7 +21,11 @@ fs = S3FileSystem(profile='default', requester_pays=True)
 
 
 
-def add_crs_dataset(ds, zone=None):
+def write_crs_dataset(ds, zone=None, overwrite=False):
+    '''
+    This function will set a CRS for a dataset (whether or not
+    one already exists!) so be sure you want to do that!
+    '''
     if zone is None:
         zone = '{}{}'.format(ds.utm_zone_number, ds.utm_zone_letter)
     crs = CRS.from_dict({'proj': 'utm', 'zone': zone})
@@ -49,7 +53,7 @@ def create_target_grid(min_lat, max_lat, min_lon, max_lon):
     return target, tiles
 
 def reproject_dataset_to_fourthousandth_grid(ds, zone=None):
-    ds = add_crs_dataset(ds, zone=zone)
+    ds = write_crs_dataset(ds, zone=zone)
     min_lat, max_lat, min_lon, max_lon = check_mins_maxes(ds)
     target, tiles = create_target_grid(min_lat, max_lat, min_lon, max_lon)
     # the numbers aren't too big but if we normalize they might turn into decimals
@@ -77,6 +81,7 @@ def dataset_to_tabular(ds):
     # this will drop both the parts of the dataset that are empty because
     # the landsat scenes might be rotated w.r.t. the x/y grid
     # but will also drop any cloud-masked regions
+    # TODO: further investigate %-age of nulls and root cause
     df = df.dropna().reset_index()
     return df
 
@@ -89,44 +94,20 @@ def convert_to_lat_lon(df, utm_zone_number, utm_zone_letter):
     ----------
     df : pandas dataframe
         geodataframe whose rows are entries for each row/path scene. Must
-        include variables 'lon', 'lat', and a utm zone called 'landsat_utm_zone'
-    
+        include variables 'lon', 'lat'
+    utm_zone_number : str/int
+        string or int for the zone number (longitude) appropriate for that 
+        scene as defined by USGS
+    utm_zone_letter : str
+        string or int for the zone letter (latitude) appropriate for that 
+        scene as defined by USGS
     Returns
     -------
     df : pandas dataframe
-        The projected information for each shot
+        The projected information for each pixel
     '''
 
     return utm.to_latlon(df['x'], df['y'], int(utm_zone_number), utm_zone_letter)
-
-
-def add_lat_lon_to_table(df, zone_number, zone_letter):
-    '''
-    Append lat and lon coords, specific to the scene-specific zone.
-
-    Parameters
-    ----------
-    df : pandas dataframe
-        dataframe with columns of bands 
-    
-    zone : string
-        UTM zone retrieved from the landsat scene itself
-    
-    Returns
-    -------
-    df : pandas dataframe
-        dataframe with columns of bands plus lats/lons
-
-    '''
-    lat_lon_info = df.apply(convert_to_lat_lon, args=(zone_number, zone_letter), axis=1).to_list()
-    # drop any nan values so we only carry around pixels we have landsat for
-    # this will drop both the parts of the dataset that are empty because
-    # the landsat scenes might be rotated w.r.t. the x/y grid
-    # but will also drop any cloud-masked regions
-    projected_column_names = ['lat','lon']
-    projection_df = pd.DataFrame(lat_lon_info, columns=projected_column_names, index=df.index)
-    updated_df = pd.concat([df, projection_df], axis=1)
-    return updated_df
 
 def load_xgb_model(model_path, local_folder='./'):
     if model_path.startswith('s3'):
@@ -143,7 +124,7 @@ def add_all_variables(data, tiles, year, lat_lon_box=None):
     data = load.worldclim(data)
     data = load.igbp(data, tiles, year, lat_lon_box=lat_lon_box)
     data = load.treecover2000(tiles, data)
-    return data.load()
+    return data
 
 def make_inference(input_data, model, features):
     """
