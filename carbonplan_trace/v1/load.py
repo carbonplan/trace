@@ -3,6 +3,25 @@ from ..v1 import utils
 import fsspec
 from carbonplan_trace.v0.data import cat
 
+WORLDCLIM_SCALING_FACTORS = {'BIO1' : 100,
+                            'BIO2' : 100,
+                            'BIO3' : 1,
+                            'BIO4' : 1,
+                            'BIO5' : 100,
+                            'BIO7' : 100,
+                            'BIO8' : 100,
+                            'BIO9' : 100,
+                            'BIO10' : 100,
+                            'BIO11' : 100,
+                            'BIO12' : 1,
+                            'BIO13' : 1,
+                            'BIO14' : 1,
+                            'BIO15' : 100,
+                            'BIO16' : 1,
+                            'BIO17' : 1,
+                            'BIO18' : 1,
+                            'BIO19' : 1,
+                            'BIO20' : 1}
 def aster(ds, tiles, lat_lon_box=None, dtype='int16'):
     '''
     Note: ds must have coordinates as lat/lon and not x/y (have different names)
@@ -20,8 +39,12 @@ def worldclim(ds, dtype='int16'):
     worldclim_subset = worldclim_ds.sel(lon=slice(float(ds.x.min().values), float(ds.x.max().values)),
                             lat=slice(float(ds.y.max().values), float(ds.y.min().values))
                                     ).load()
+    all_vars = worldclim_subset.data_vars
+    for var in all_vars:
+        worldclim_subset[var] = worldclim_subset[var] * WORLDCLIM_SCALING_FACTORS[var]
+
     worldclim_reprojected = utils.find_matching_records(worldclim_subset, ds.y, ds.x, dtype=dtype).load()
-    for var in worldclim_reprojected.data_vars:
+    for var in all_vars:
         ds[var] = worldclim_reprojected[var]
         del worldclim_reprojected[var]
     return ds

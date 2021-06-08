@@ -135,7 +135,6 @@ def make_inference(input_data, model, features):
     input_data['biomass'] = model.predict(input_data[features])
     return input_data[['x', 'y', 'biomass']]
 
-# @dask.delayed
 def predict(model_path, path, row, year, access_key_id, 
                 secret_access_key, output_write_bucket=None, 
                                 input_write_bucket=None,
@@ -148,24 +147,21 @@ def predict(model_path, path, row, year, access_key_id,
                             bands_of_interest='all',
                             season=season)
     ## landsat_ds = xr.open_zarr('s3://carbonplan-climatetrace/v1/45/25/2003/JJA_reflectance.zarr')
-    print('landsat loaded')
     # add in other datasets
     landsat_zone = landsat_ds.utm_zone_number+landsat_ds.utm_zone_letter
     data, tiles, bounding_box = reproject_dataset_to_fourthousandth_grid(landsat_ds, zone=landsat_zone)
-    print('reprojected!')
     del landsat_ds
     data = add_all_variables(data, tiles, year, lat_lon_box=bounding_box).load()
-    print('all variables in!')
     df = dataset_to_tabular(data)
     del data
-    print('now in tabular!')
     if input_write_bucket is not None:
         utils.write_parquet(df, input_write_bucket, access_key_id, secret_access_key)
         # df = pd.read_parquet(input_write_bucket)
     prediction = make_inference(df, model, features)
-    print('INFERENCE COMPLETE')
     if output_write_bucket is not None:
         utils.write_parquet(prediction, output_write_bucket, access_key_id, secret_access_key)
         print(output_write_bucket)
     else:
         return prediction
+
+predict_delayed = dask.delayed(predict)
