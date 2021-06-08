@@ -103,7 +103,6 @@ def grab_ds(item, bands_of_interest, cog_mask, utm_zone, utm_letter):
 
     # combine into one dataset
     ds = xr.concat(da_list, dim='band').to_dataset(dim='band').rename({1: 'reflectance'})
-    print('combining bands!')
     del da_list
     ds = ds.assign_coords({'band': bands_of_interest})
     # fill value is 0; let's switch it to nan
@@ -151,10 +150,7 @@ def average_stack_of_scenes(ds_list):
     full_ds = xr.concat(ds_list, dim='scene').mean(dim='scene').load()
     for var in ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7']:
         full_ds[var] = full_ds[var].astype('int16')
-    print(full_ds)
-    print('averaged!')
     del ds_list
-    print('deleted ds_list! did memory drop?')
 
     full_ds.attrs['utm_zone_number'] = utm_zone[0]
     full_ds.attrs['utm_zone_letter'] = utm_letter[0]
@@ -331,10 +327,7 @@ def scene_seasonal_average(path, row, year, access_key_id, secret_access_key,
                 cloud_mask_url = url+'_SR_CLOUD_QA.TIF'
                 cog_mask = cloud_qa(cloud_mask_url)
                 ds_list.append(grab_ds(url, bands_of_interest, cog_mask, utm_zone, utm_letter))
-                print('added a ds')
-            print('making seasonal average')
             seasonal_average = average_stack_of_scenes(ds_list)
-            print('created the seasonal average')
             del ds_list
             if write_bucket is not None:
                 # set where you'll save the final seasonal average

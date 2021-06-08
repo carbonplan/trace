@@ -11,7 +11,7 @@ def aster(ds, tiles, lat_lon_box=None, dtype='int16'):
     full_aster = utils.open_and_combine_lat_lon_data("gs://carbonplan-climatetrace/intermediates/aster/", 
                                                     tiles=tiles, 
                                                     lat_lon_box=lat_lon_box)
-    selected_aster = find_matching_records(full_aster, lats=ds.y, lons=ds.x, dtype=dtype).load().drop(['spatial_ref'])
+    selected_aster = utils.find_matching_records(full_aster, lats=ds.y, lons=ds.x, dtype=dtype).load().drop(['spatial_ref'])
     return xr.merge([ds, selected_aster])
 
 def worldclim(ds, dtype='int16'):
@@ -20,7 +20,7 @@ def worldclim(ds, dtype='int16'):
     worldclim_subset = worldclim_ds.sel(lon=slice(float(ds.x.min().values), float(ds.x.max().values)),
                             lat=slice(float(ds.y.max().values), float(ds.y.min().values))
                                     ).load()
-    worldclim_reprojected = find_matching_records(worldclim_subset, ds.y, ds.x, dtype=dtype).load()
+    worldclim_reprojected = utils.find_matching_records(worldclim_subset, ds.y, ds.x, dtype=dtype).load()
     for var in worldclim_reprojected.data_vars:
         ds[var] = worldclim_reprojected[var]
         del worldclim_reprojected[var]
