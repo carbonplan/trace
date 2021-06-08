@@ -3,6 +3,8 @@ import utm
 
 # create utm band letter / latitude dictionary
 # latitude represents southern edge of letter band
+band_numbers = list(np.arange(-80,80,8))
+band_numbers.append(84)
 
 def spans_utm_border(lats):
     '''

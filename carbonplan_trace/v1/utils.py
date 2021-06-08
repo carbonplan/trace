@@ -80,7 +80,7 @@ def open_glah01_data():
     return ds
 
 
-def open_and_combine_lat_lon_data(folder, tiles=None):
+def open_and_combine_lat_lon_data(folder, tiles=None, lat_lon_box=None):
     """
     Load lat lon data stored as 10x10 degree tiles in folder
     If tiles is none, load all data available
@@ -103,10 +103,16 @@ def open_and_combine_lat_lon_data(folder, tiles=None):
                 da = da.reindex(lat=da.lat[::-1])
             if da.lon[0] > da.lon[-1]:
                 da = da.reindex(lat=da.lon[::-1])
-            ds_list.append(da)
 
+            if lat_lon_box is not None:
+                [min_lat, max_lat, min_lon, max_lon] = lat_lon_box
+                da = da.sel(lat=slice(min_lat, max_lat),
+                            lon=slice(min_lon, max_lon))
+                
+            ds_list.append(da)
     if len(ds_list) > 0:
-        ds = xr.combine_by_coords(ds_list, combine_attrs="drop_conflicts").chunk(
+        ds = xr.combine_by_coords(ds_list, 
+                        combine_attrs="drop_conflicts").chunk(
             {'lat': 2000, 'lon': 2000}
         )
         return ds
@@ -135,14 +141,14 @@ def open_ecoregion_data(tiles=None):
     return open_and_combine_lat_lon_data(folder, tiles)
 
 
-def open_igbp_data(tiles=None):
+def open_igbp_data(tiles=None, lat_lon_box=None):
     """
     Load igbp data stored as 10x10 degree tiles
     If tiles is none, load all data available
     """
     folder = 'gs://carbonplan-climatetrace/intermediates/igbp/'
 
-    return open_and_combine_lat_lon_data(folder, tiles)
+    return open_and_combine_lat_lon_data(folder, tiles, lat_lon_box=lat_lon_box)
 
 
 def open_burned_area_data(tiles):

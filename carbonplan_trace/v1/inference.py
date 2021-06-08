@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from carbonplan_trace.v0.data import cat
 import dask
 from ..v1 import load
+import numpy as np
 from carbonplan_trace.v1.model import features
 
 fs = S3FileSystem(profile='default', requester_pays=True)
@@ -36,24 +37,25 @@ def check_mins_maxes(ds):
     max_lon = reprojected.x.max().values
     return min_lat, max_lat, min_lon, max_lon
  
-def create_target(min_lat, max_lat, min_lon, max_lon):
+def create_target_grid(min_lat, max_lat, min_lon, max_lon):
     tiles = utils.find_tiles_for_bounding_box(min_lat, max_lat, min_lon, max_lon)
     full_target_ds = utils.open_and_combine_lat_lon_data('gs://carbonplan-climatetrace/intermediates/ecoregions_mask/', 
-                                                    tiles=tiles)
+                                                    tiles=tiles,
+                                                    lat_lon_box=[min_lat, max_lat, min_lon, max_lon])
     full_target_ds = full_target_ds.rename({'lat': 'y', 'lon': 'x'})
     buffer = 0.01
     target = full_target_ds.sel(y=slice(min_lat-buffer, max_lat+buffer),
                       x=slice(min_lon-buffer, max_lon+buffer))
     return target, tiles
 
-def reproject_dataset(ds, zone=None):
+def reproject_dataset_to_fourthousandth_grid(ds, zone=None):
     ds = add_crs_dataset(ds, zone=zone)
     min_lat, max_lat, min_lon, max_lon = check_mins_maxes(ds)
-    target, tiles = create_target(min_lat, max_lat, min_lon, max_lon)
+    target, tiles = create_target_grid(min_lat, max_lat, min_lon, max_lon)
     # the numbers aren't too big but if we normalize they might turn into decimals
-    reprojected = ds.rio.reproject_match(target).astype('int16').load()
+    reprojected = ds.rio.reproject_match(target).load()
     del ds
-    return reprojected, tiles
+    return reprojected, tiles, [min_lat, max_lat, min_lon, max_lon]
 
 def dataset_to_tabular(ds):
     '''
@@ -136,10 +138,10 @@ def load_xgb_model(model_path, local_folder='./'):
     model.load_model(model_path)
     return model
 
-def add_all_variables(data, tiles, year):
-    data = load.aster(data, tiles)
+def add_all_variables(data, tiles, year, lat_lon_box=None):
+    data = load.aster(data, tiles, lat_lon_box=lat_lon_box)
     data = load.worldclim(data)
-    data = load.igbp(data, tiles, year)
+    data = load.igbp(data, tiles, year, lat_lon_box=lat_lon_box)
     data = load.treecover2000(tiles, data)
     return data.load()
 
@@ -147,14 +149,12 @@ def make_inference(input_data, model, features):
     """
     input_data is assumed to be a pandas dataframe, and model uses standard sklearn API with .predict
     """
-    sub = input_data.dropna(subset=features)
-    sub = sub.loc[(~(sub.NDVI == np.inf) & ~(sub.NDII == np.inf))]
-    X = sub[features]
-    X['burned'] = X.burned.astype(float)
-    sub['biomass'] = model.predict(X)
-    return sub[['lat', 'lon', 'biomass']]
+    input_data.dropna(subset=features, inplace=True)
+    input_data = input_data.loc[(~(input_data.NDVI == np.inf) & ~(input_data.NDII == np.inf))]
+    input_data['biomass'] = model.predict(input_data[features])
+    return input_data[['x', 'y', 'biomass']]
 
-
+# @dask.delayed
 def predict(model_path, path, row, year, access_key_id, 
                 secret_access_key, output_write_bucket=None, 
                                 input_write_bucket=None,
@@ -163,40 +163,28 @@ def predict(model_path, path, row, year, access_key_id,
     model = load_xgb_model(model_path)
     # create the landsat scene for that year
     landsat_ds = scene_seasonal_average(path, row, year, access_key_id, 
-                        secret_access_key, write_bucket=None,
+                        secret_access_key, write_bucket=None, #'s3://carbonplan-climatetrace/v1/',
                             bands_of_interest='all',
                             season=season)
-
+    ## landsat_ds = xr.open_zarr('s3://carbonplan-climatetrace/v1/45/25/2003/JJA_reflectance.zarr')
+    print('landsat loaded')
     # add in other datasets
     landsat_zone = landsat_ds.utm_zone_number+landsat_ds.utm_zone_letter
-    data, tiles = reproject_dataset(landsat_ds, zone=landsat_zone)
-    
+    data, tiles, bounding_box = reproject_dataset_to_fourthousandth_grid(landsat_ds, zone=landsat_zone)
+    print('reprojected!')
     del landsat_ds
-
-    data = add_all_variables(data, tiles, year).load()
-
+    data = add_all_variables(data, tiles, year, lat_lon_box=bounding_box).load()
+    print('all variables in!')
     df = dataset_to_tabular(data)
-
     del data
-
+    print('now in tabular!')
     if input_write_bucket is not None:
         utils.write_parquet(df, input_write_bucket, access_key_id, secret_access_key)
-    
+        # df = pd.read_parquet(input_write_bucket)
     prediction = make_inference(df, model, features)
-
+    print('INFERENCE COMPLETE')
     if output_write_bucket is not None:
         utils.write_parquet(prediction, output_write_bucket, access_key_id, secret_access_key)
-    
+        print(output_write_bucket)
     else:
         return prediction
-
-
-
-#     # prediction
-
-#     # save out x/y (specific to row/path scene) and lat/lon (from hansen grid) (plus biomass)
-
-# def repackage():
-#     # in_df is list of x/y/biomass
-    
-# def write_to_zarr():
