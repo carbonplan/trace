@@ -2,8 +2,8 @@
 
 # ==== ONLY EDIT WITHIN THIS BLOCK =====
 
-export PANGEO_ENV="carbonplan-gcp-us-cental-1"
-export SCRATCH="gs://carbonplan-scratch"
+export PANGEO_ENV="carbonplan.2i2c.cloud/"
+export SCRATCH="s3://carbonplan-scratch"
 export CARBONPLAN_DATA="gs://carbonplan-data"
 
 # ==== ONLY EDIT WITHIN THIS BLOCK =====
