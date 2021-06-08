@@ -54,18 +54,23 @@ def compute_grid_area(da):
 
 def coarsen_emissions(ds, factor=100):
     """
-    TODO
+    Coarsen emissions by the provided factor
 
     Parameters
     ----------
     ds : xarray.Dataset
         Dataset with emissions and spatial coordinates (lon and lat)
+    factor : int
+        The factor by for which the emissions data will be coarsened
 
     Returns
     -------
     ds : xarray.Dataset
         DataArray with grid cell areas in square meters
     """
-    da_mask = ds['emissions'].isel(year=0, drop=True)
+    da_mask = ds['emissions']
+    if 'year' in ds.dims:
+        da_mask = da_mask.isel(year=0, drop=True)
+
     da_area = compute_grid_area(da_mask)
     return (ds * da_area).coarsen(lat=factor, lon=factor).sum()

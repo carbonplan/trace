@@ -32,7 +32,7 @@ def _preprocess(da, lat=None, lon=None):
     return da
 
 
-def open_hansen_change_tile(lat, lon, emissions=False):
+def open_hansen_change_tile(lat, lon):
     """
     Open single tile from the Hansen 2020 dataset and then
     massage it into a format for use by the rest of the routines.
@@ -43,6 +43,7 @@ def open_hansen_change_tile(lat, lon, emissions=False):
         The latitude of the northwest corner of the tile
     lon : float
         The longitude of the northwest corner of the tile
+
     Returns
     -------
     ds : xarray.Dataset
@@ -72,18 +73,5 @@ def open_hansen_change_tile(lat, lon, emissions=False):
         .pipe(_preprocess, lat=ds.lat, lon=ds.lon)
         .astype(dtypes["agb"])
     )
-    # if emissions:
-    #     # Hansen emissions
-    #     ds["emissions_ha"] = (
-    #         cat.hansen_emissions_ha(lat=lat, lon=lon)
-    #         .to_dask()
-    #         .pipe(_preprocess, lat=ds.lat, lon=ds.lon)
-    #     )
-    #     ds["emissions_px"] = (
-    #         cat.hansen_emissions_px(lat=lat, lon=lon)
-    #         .to_dask()
-    #         .pipe(_preprocess, lat=ds.lat, lon=ds.lon)
-    #     )
-    print(ds)
-    print(ds.nbytes / 1e9)
+
     return ds
