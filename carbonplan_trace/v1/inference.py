@@ -9,6 +9,7 @@ from pyproj import CRS
 from s3fs import S3FileSystem
 
 from carbonplan_trace.v1.model import features
+from carbonplan_trace.v1.landsat_preprocess import scene_seasonal_average
 
 from ..v1 import load, utils
 
