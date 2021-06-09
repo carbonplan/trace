@@ -2,7 +2,7 @@ name: carbonplan
 channels:
   - conda-forge
 dependencies:
-  - pangeo-notebook=2021.05.15
+  - pangeo-notebook=2021.06.05
   - boto3
   - bottleneck
   - cartopy
@@ -17,11 +17,9 @@ dependencies:
   - intake
   - intake-geopandas
   - intake-parquet
-  - intake-stac
   - intake-xarray
   - ipykernel
   - ipython
-  - ipyleaflet
   - ipytree
   - ipywidgets
   - jedi
@@ -31,23 +29,17 @@ dependencies:
   - libgdal
   - matplotlib
   - nb_conda_kernels
-  - netcdf4
   - nodejs
   - numba
   - numcodecs
   - numpy
   - oauth2client
-  - openpyxl
   - pandas
   - pre_commit
-  - prefect
   - pykdtree
   - pygeos
   - pygraphviz
   - pyproj
-  - pyresample
-  - pystac
-  - pystan
   - pytest
   - python-graphviz
   - python-wget
@@ -62,13 +54,10 @@ dependencies:
   - tqdm
   - xarray
   - xgboost
-  - xlrd
-  - yarn
   - zarr
   - pip
   - pip:
       - carbonplan
       - carbonplan-data
       - carbonplan-styles
-      - rio-tiler-mvt
       - git+https://github.com/carbonplan/trace.git@main
