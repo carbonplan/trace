@@ -1,27 +1,14 @@
-import json
-import os
 from datetime import datetime
 
-import awswrangler as wr
-import boto3
-import dask
-import fsspec
-import geopandas as gpd
-import matplotlib.pyplot as plt
-import numcodecs
-import numpy as np
 import pandas as pd
-import rasterio as rio
-import regionmask as rm
 import rioxarray  # for the extension to load
 import utm
 import xarray as xr
-import zarr
-from intake import open_stac_item_collection
-from matplotlib.pyplot import imshow
-from osgeo.gdal import VSICurlClearCache
-from rasterio.session import AWSSession
 from s3fs import S3FileSystem
+
+# flake8: noqa
+
+fs = S3FileSystem(profile='default', requester_pays=True)
 
 
 def add_landsat_utm_zone(scene_gdf):
@@ -44,13 +31,13 @@ def add_landsat_utm_zone(scene_gdf):
     '''
     scene_gdf['landsat_utm_zone'] = ""
     for scene_id in scene_gdf.index:
-        scene_row = washington_scenes.loc[scene_id]['ROW']
-        scene_path = washington_scenes.loc[scene_id]['PATH']
+        scene_row = scene_gdf.loc[scene_id]['ROW']
+        scene_path = scene_gdf.loc[scene_id]['PATH']
         url = 's3://carbonplan-climatetrace/v1/{}/{}/2004/JJA_reflectance.zarr'.format(
             scene_path, scene_row
         )
         landsat_utm_zone = xr.open_zarr(fs.get_mapper(url)).utm_zone
-        washington_scenes.loc[scene_id, 'landsat_utm_zone'] = int(landsat_utm_zone)
+        scene_gdf.loc[scene_id, 'landsat_utm_zone'] = int(landsat_utm_zone)
     return scene_gdf
 
 

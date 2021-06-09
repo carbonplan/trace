@@ -1,9 +1,6 @@
-from datetime import datetime, timezone
-
 import dask
 import fsspec
 import numpy as np
-import pandas as pd
 import rioxarray as rio
 import utm
 import xarray as xr
@@ -11,12 +8,11 @@ import xgboost as xgb
 from pyproj import CRS
 from s3fs import S3FileSystem
 
-from carbonplan_trace.v0.data import cat
 from carbonplan_trace.v1.model import features
 
 from ..v1 import load, utils
-from .landsat_preprocess import scene_seasonal_average
-from .link_biomass_landsat import add_landsat_utm_zone
+
+# flake8: noqa
 
 fs = S3FileSystem(profile='default', requester_pays=True)
 
@@ -161,19 +157,20 @@ def predict(
 ):
     model = load_xgb_model(model_path)
     # create the landsat scene for that year
-    landsat_ds = scene_seasonal_average(
-        path,
-        row,
-        year,
-        access_key_id,
-        secret_access_key,
-        write_bucket=None,  #'s3://carbonplan-climatetrace/v1/',
-        bands_of_interest='all',
-        season=season,
-    )
-    ## landsat_ds = xr.open_zarr('s3://carbonplan-climatetrace/v1/45/25/2003/JJA_reflectance.zarr')
+    # landsat_ds = scene_seasonal_average(
+    #     path,
+    #     row,
+    #     year,
+    #     access_key_id,
+    #     secret_access_key,
+    #     write_bucket=None,  #'s3://carbonplan-climatetrace/v1/',
+    #     bands_of_interest='all',
+    #     season=season,
+    # )
+    landsat_ds = xr.open_zarr('s3://carbonplan-climatetrace/v1/45/25/2003/JJA_reflectance.zarr')
     # add in other datasets
-    landsat_zone = landsat_ds.utm_zone_number + landsat_ds.utm_zone_letter
+    # landsat_zone = landsat_ds.utm_zone_number + landsat_ds.utm_zone_letter
+    landsat_zone = '11U'
     data, tiles, bounding_box = reproject_dataset_to_fourthousandth_grid(
         landsat_ds, zone=landsat_zone
     )

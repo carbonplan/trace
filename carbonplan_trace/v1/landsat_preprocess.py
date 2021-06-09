@@ -1,29 +1,17 @@
 import json
-import os
-from datetime import datetime
 
-import awswrangler as wr
 import boto3
 import dask
-import fsspec
-import geopandas as gpd
-import matplotlib.pyplot as plt
-import numcodecs
-import numpy as np
-import pandas as pd
 import rasterio as rio
-import regionmask as rm
 import rioxarray  # for the extension to load
 import utm
 import xarray as xr
-import zarr
-from intake import open_stac_item_collection
-from matplotlib.pyplot import imshow
-from osgeo.gdal import VSICurlClearCache
 from rasterio.session import AWSSession
 from s3fs import S3FileSystem
 
 from .utils import spans_utm_border, verify_projection
+
+# flake8: noqa
 
 
 def test_credentials(
@@ -42,9 +30,7 @@ def test_credentials(
 
     with rio.Env(aws_session):
         with rio.open(canary_file) as src:
-            profile = src.profile
-
-            arr = src.read(1)
+            src.read(1)
 
 
 def fix_link(url):

@@ -1,16 +1,21 @@
 import fsspec
 import xarray as xr
+from s3fs import S3FileSystem
 
 from carbonplan_trace.v0.data import cat
 
 from ..v1 import utils
 
+# flake8: noqa
+
+fs = S3FileSystem(profile='default', requester_pays=True)
 WORLDCLIM_SCALING_FACTORS = {
     'BIO01': 100,
     'BIO02': 100,
     'BIO03': 1,
     'BIO04': 1,
     'BIO05': 100,
+    'BIO06': 100,
     'BIO07': 100,
     'BIO08': 100,
     'BIO09': 100,
