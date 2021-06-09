@@ -1,49 +1,65 @@
-import xarray as xr
-from ..v1 import utils
 import fsspec
+import xarray as xr
+
 from carbonplan_trace.v0.data import cat
 
-WORLDCLIM_SCALING_FACTORS = {'BIO1' : 100,
-                            'BIO2' : 100,
-                            'BIO3' : 1,
-                            'BIO4' : 1,
-                            'BIO5' : 100,
-                            'BIO7' : 100,
-                            'BIO8' : 100,
-                            'BIO9' : 100,
-                            'BIO10' : 100,
-                            'BIO11' : 100,
-                            'BIO12' : 1,
-                            'BIO13' : 1,
-                            'BIO14' : 1,
-                            'BIO15' : 100,
-                            'BIO16' : 1,
-                            'BIO17' : 1,
-                            'BIO18' : 1,
-                            'BIO19' : 1,
-                            'BIO20' : 1}
+from ..v1 import utils
+
+WORLDCLIM_SCALING_FACTORS = {
+    'BIO01': 100,
+    'BIO02': 100,
+    'BIO03': 1,
+    'BIO04': 1,
+    'BIO05': 100,
+    'BIO07': 100,
+    'BIO08': 100,
+    'BIO09': 100,
+    'BIO10': 100,
+    'BIO11': 100,
+    'BIO12': 1,
+    'BIO13': 1,
+    'BIO14': 1,
+    'BIO15': 100,
+    'BIO16': 1,
+    'BIO17': 1,
+    'BIO18': 1,
+    'BIO19': 1,
+    'BIO20': 1,
+}
+
+
 def aster(ds, tiles, lat_lon_box=None, dtype='int16'):
     '''
     Note: ds must have coordinates as lat/lon and not x/y (have different names)
-    otherwise the coordinates will not be turned into 
+    otherwise the coordinates will not be turned into
     '''
-    full_aster = utils.open_and_combine_lat_lon_data("gs://carbonplan-climatetrace/intermediates/aster/", 
-                                                    tiles=tiles, 
-                                                    lat_lon_box=lat_lon_box)
-    selected_aster = utils.find_matching_records(full_aster, lats=ds.y, lons=ds.x, dtype=dtype).load().drop(['spatial_ref'])
+    full_aster = utils.open_and_combine_lat_lon_data(
+        "gs://carbonplan-climatetrace/intermediates/aster/", tiles=tiles, lat_lon_box=lat_lon_box
+    )
+    selected_aster = (
+        utils.find_matching_records(full_aster, lats=ds.y, lons=ds.x, dtype=dtype)
+        .load()
+        .drop(['spatial_ref'])
+    )
     return xr.merge([ds, selected_aster])
 
+
 def worldclim(ds, dtype='int16'):
-    mapper = fsspec.get_mapper('s3://carbonplan-climatetrace/v1/data/intermediates/annual_averaged_worldclim.zarr')
+    mapper = fsspec.get_mapper(
+        's3://carbonplan-climatetrace/v1/data/intermediates/annual_averaged_worldclim.zarr'
+    )
     worldclim_ds = xr.open_zarr(mapper, consolidated=True)
-    worldclim_subset = worldclim_ds.sel(lon=slice(float(ds.x.min().values), float(ds.x.max().values)),
-                            lat=slice(float(ds.y.max().values), float(ds.y.min().values))
-                                    ).load()
+    worldclim_subset = worldclim_ds.sel(
+        lon=slice(float(ds.x.min().values), float(ds.x.max().values)),
+        lat=slice(float(ds.y.max().values), float(ds.y.min().values)),
+    ).load()
     all_vars = worldclim_subset.data_vars
     for var in all_vars:
         worldclim_subset[var] = worldclim_subset[var] * WORLDCLIM_SCALING_FACTORS[var]
 
-    worldclim_reprojected = utils.find_matching_records(worldclim_subset, ds.y, ds.x, dtype=dtype).load()
+    worldclim_reprojected = utils.find_matching_records(
+        worldclim_subset, ds.y, ds.x, dtype=dtype
+    ).load()
     for var in all_vars:
         ds[var] = worldclim_reprojected[var]
         del worldclim_reprojected[var]
@@ -71,8 +87,7 @@ def treecover2000(tiles, data, lat_lon_box=None, dtype='int8'):
         hansen_tile = hansen_tile.rename({"x": "lon", "y": "lat"}).squeeze(drop=True)
         if lat_lon_box is not None:
             [min_lat, max_lat, min_lon, max_lon] = lat_lon_box
-            hansen_tile = hansen_tile.sel(lat=slice(min_lat, max_lat),
-                        lon=slice(min_lon, max_lon))
+            hansen_tile = hansen_tile.sel(lat=slice(min_lat, max_lat), lon=slice(min_lon, max_lon))
         hansen.append(hansen_tile.to_dataset(name='treecover2000', promote_attrs=True))
 
     hansen = xr.combine_by_coords(hansen, combine_attrs="drop_conflicts").chunk(
@@ -86,6 +101,7 @@ def treecover2000(tiles, data, lat_lon_box=None, dtype='int8'):
 
     return data
 
+
 def load_biomass(ul_lat, ul_lon):
     '''
     Load in specific biomass tile.
@@ -94,7 +110,7 @@ def load_biomass(ul_lat, ul_lon):
     ----------
     scene_gdf : geopandas geodataframe
         geodataframe whose rows are entries for each row/path scene
-    
+
     Returns
     -------
     scene_gdf : geopandas geodataframe
@@ -103,7 +119,9 @@ def load_biomass(ul_lat, ul_lon):
 
     '''
     # TODO need to fix this to open in the same way as for the other datasets (by passing the bounding box)
-    file_mapper = fs.get_mapper('carbonplan-climatetrace/v1/data/intermediates/biomass/{}N_{}W.zarr'.format(ul_lat, ul_lon))
+    file_mapper = fs.get_mapper(
+        'carbonplan-climatetrace/v1/data/intermediates/biomass/{}N_{}W.zarr'.format(ul_lat, ul_lon)
+    )
 
     ds = xr.open_zarr(file_mapper, consolidated=True)
     return ds

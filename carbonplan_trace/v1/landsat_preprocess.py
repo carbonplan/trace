@@ -1,32 +1,37 @@
-import boto3
-from rasterio.session import AWSSession
-from s3fs import S3FileSystem
-from osgeo.gdal import VSICurlClearCache
-import rasterio as rio
-import xarray as xr
-import dask
+import json
 import os
+from datetime import datetime
+
+import awswrangler as wr
+import boto3
+import dask
 import fsspec
 import geopandas as gpd
-import regionmask as rm
-from matplotlib.pyplot import imshow
-from intake import open_stac_item_collection
+import matplotlib.pyplot as plt
 import numcodecs
 import numpy as np
-import rioxarray # for the extension to load
-import matplotlib.pyplot as plt
-import utm
 import pandas as pd
-from datetime import datetime
-import json
+import rasterio as rio
+import regionmask as rm
+import rioxarray  # for the extension to load
+import utm
+import xarray as xr
 import zarr
-import awswrangler as wr
+from intake import open_stac_item_collection
+from matplotlib.pyplot import imshow
+from osgeo.gdal import VSICurlClearCache
+from rasterio.session import AWSSession
+from s3fs import S3FileSystem
+
 from .utils import spans_utm_border, verify_projection
 
-def test_credentials(aws_session, 
-                            canary_file='s3://usgs-landsat/collection02/level-2/standard/'+\
-                            'tm/2003/044/029/LT05_L2SP_044029_20030827_20200904_02_T1/'+\
-                            'LT05_L2SP_044029_20030827_20200904_02_T1_SR_B2.TIF'):    
+
+def test_credentials(
+    aws_session,
+    canary_file='s3://usgs-landsat/collection02/level-2/standard/'
+    + 'tm/2003/044/029/LT05_L2SP_044029_20030827_20200904_02_T1/'
+    + 'LT05_L2SP_044029_20030827_20200904_02_T1_SR_B2.TIF',
+):
     # this file is the canary in the coal mine
     # if you can't open this one you've got *issues* because it exists!
     # also the instantiation of the environment here
@@ -38,7 +43,7 @@ def test_credentials(aws_session,
     with rio.Env(aws_session):
         with rio.open(canary_file) as src:
             profile = src.profile
-            
+
             arr = src.read(1)
 
 
@@ -72,10 +77,10 @@ def grab_ds(item, bands_of_interest, cog_mask, utm_zone, utm_letter):
     item : stac item
         The stac item for a specific scene
     bands_of_interest: list
-        The list of bands you want to include in your dataset 
+        The list of bands you want to include in your dataset
         (e.g. ['SR_B1', 'SR_B2'])
     cog_mask: xarray data array
-        The mask specific to this scene which you'll use to 
+        The mask specific to this scene which you'll use to
         exclude poor quality observations
     utm_zone: str
         The UTM zone used in the projection of this landsat scene. This
@@ -85,7 +90,7 @@ def grab_ds(item, bands_of_interest, cog_mask, utm_zone, utm_letter):
         The UTM zone used in the projection of this landsat scene. This
         defined by USGS and sometimes doesn't match what you'd expect
         so is important to carry through in the processing.
-    
+
     Returns
     -------
     xarray dataset
@@ -93,22 +98,24 @@ def grab_ds(item, bands_of_interest, cog_mask, utm_zone, utm_letter):
     '''
 
     if type(item) == str:
-        url_list = [item+'_{}.TIF'.format(band) for band in bands_of_interest]
+        url_list = [item + '_{}.TIF'.format(band) for band in bands_of_interest]
     else:
-        url_list = [fix_link(item._stac_obj.assets['{}.TIF'.format(band)]['href']) for band in bands_of_interest]
+        url_list = [
+            fix_link(item._stac_obj.assets['{}.TIF'.format(band)]['href'])
+            for band in bands_of_interest
+        ]
     da_list = []
     for url in url_list:
-        da_list.append(rioxarray.open_rasterio(url, chunks={'x': 1024,
-                                                    'y': 1024}))
+        da_list.append(rioxarray.open_rasterio(url, chunks={'x': 1024, 'y': 1024}))
 
     # combine into one dataset
     ds = xr.concat(da_list, dim='band').to_dataset(dim='band').rename({1: 'reflectance'})
     del da_list
     ds = ds.assign_coords({'band': bands_of_interest})
     # fill value is 0; let's switch it to nan
-    ds = ds.where(ds != 0)  
-    ds = ds.where(cog_mask<2)
-    ds = ds.reflectance.to_dataset(dim='band')#.drop('spatial_ref')
+    ds = ds.where(ds != 0)
+    ds = ds.where(cog_mask < 2)
+    ds = ds.reflectance.to_dataset(dim='band')  # .drop('spatial_ref')
     for var in ds.data_vars:
         ds[var] = ds[var].astype('int16')
     ds.attrs["utm_zone_number"] = utm_zone
@@ -120,17 +127,17 @@ def grab_ds(item, bands_of_interest, cog_mask, utm_zone, utm_letter):
 
 def average_stack_of_scenes(ds_list):
     '''
-    Average across scenes. This will work the same regardless 
+    Average across scenes. This will work the same regardless
     of whether your scenes are perfectly overlapping or they're offset.
-    However, if they're offset it requires a merge and so the entire 
-    datacube (pre-collapsing) will be instantiated and might make 
+    However, if they're offset it requires a merge and so the entire
+    datacube (pre-collapsing) will be instantiated and might make
     your kernel explode.
 
     Parameters
     ----------
     ds_list : list
         List of xarray datsets to average.
-    
+
     Returns
     -------
     xarray dataset
@@ -144,8 +151,8 @@ def average_stack_of_scenes(ds_list):
     # WATCH OUT: you don't want to average scenes from multiple utm projections!!
     # thank goodness we have these two swanky assertions below
     # TODO: this could probably be moved to a test
-    assert len(set(utm_zone))==1
-    assert len(set(utm_letter))==1
+    assert len(set(utm_zone)) == 1
+    assert len(set(utm_letter)) == 1
 
     full_ds = xr.concat(ds_list, dim='scene').mean(dim='scene').load()
     for var in ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7']:
@@ -169,15 +176,18 @@ def write_out(ds, mapper):
         Mapper of location to write the dataset
     '''
     # encoding = {'reflectance': {'compressor': numcodecs.Blosc()}}
-    ds.to_zarr(store=mapper,
-                        # encoding=encoding, 
-                         mode='w')
+    ds.to_zarr(
+        store=mapper,
+        # encoding=encoding,
+        mode='w',
+    )
+
 
 def access_credentials():
     '''
-    Access the credentials you'll need for read/write permissions. 
+    Access the credentials you'll need for read/write permissions.
     This will access a file with your credentials in your home directory,
-    so that file needs to exist in the correct format. 
+    so that file needs to exist in the correct format.
     *CAREFUL* This is brittle.
 
     Returns
@@ -194,20 +204,30 @@ def access_credentials():
         secret_access_key = credentials[2].split('=')[1]
     return access_key_id, secret_access_key
 
+
 def grab_scene_coord_info(metadata):
     '''
     Grab latitude values for scene corners.
     '''
 
     lats = []
-    for key in ['CORNER_LL_LAT_PRODUCT', 'CORNER_LR_LAT_PRODUCT', 'CORNER_UL_LAT_PRODUCT',
-               'CORNER_UR_LAT_PRODUCT']:
+    for key in [
+        'CORNER_LL_LAT_PRODUCT',
+        'CORNER_LR_LAT_PRODUCT',
+        'CORNER_UL_LAT_PRODUCT',
+        'CORNER_UR_LAT_PRODUCT',
+    ]:
         lats.append(float(metadata[key]))
-    upper_right_corner_proj = (float(metadata['CORNER_UR_PROJECTION_X_PRODUCT']),
-                        float(metadata['CORNER_UR_PROJECTION_Y_PRODUCT']))
-    upper_right_corner_coords = (float(metadata['CORNER_UR_LON_PRODUCT']),
-                        float(metadata['CORNER_UR_LAT_PRODUCT']))
+    upper_right_corner_proj = (
+        float(metadata['CORNER_UR_PROJECTION_X_PRODUCT']),
+        float(metadata['CORNER_UR_PROJECTION_Y_PRODUCT']),
+    )
+    upper_right_corner_coords = (
+        float(metadata['CORNER_UR_LON_PRODUCT']),
+        float(metadata['CORNER_UR_LAT_PRODUCT']),
+    )
     return lats, upper_right_corner_proj, upper_right_corner_coords
+
 
 def get_scene_utm_info(url):
 
@@ -226,29 +246,37 @@ def get_scene_utm_info(url):
 
     '''
 
-    metadata_url = url+'_MTL.json'
+    metadata_url = url + '_MTL.json'
     json_client = boto3.client('s3')
-    data = json_client.get_object(Bucket='usgs-landsat',
-                                 Key=metadata_url[18:],
-                                 RequestPayer='requester')
+    data = json_client.get_object(
+        Bucket='usgs-landsat', Key=metadata_url[18:], RequestPayer='requester'
+    )
     metadata = json.loads(data['Body'].read())
     utm_zone = metadata['LANDSAT_METADATA_FILE']['PROJECTION_ATTRIBUTES']['UTM_ZONE']
 
-    lats, upper_right_corner_proj, upper_right_corner_coords = grab_scene_coord_info(metadata['LANDSAT_METADATA_FILE']['PROJECTION_ATTRIBUTES'])
+    lats, upper_right_corner_proj, upper_right_corner_coords = grab_scene_coord_info(
+        metadata['LANDSAT_METADATA_FILE']['PROJECTION_ATTRIBUTES']
+    )
 
     if spans_utm_border(lats):
-        utm_zone_letter = verify_projection(upper_right_corner_coords, upper_right_corner_proj, int(utm_zone))
+        utm_zone_letter = verify_projection(
+            upper_right_corner_coords, upper_right_corner_proj, int(utm_zone)
+        )
     else:
-        (_x, _y, calculated_zone_number, utm_zone_letter) = utm.from_latlon(upper_right_corner_coords[1], upper_right_corner_coords[0], force_zone_number=int(utm_zone))
+        (_x, _y, calculated_zone_number, utm_zone_letter) = utm.from_latlon(
+            upper_right_corner_coords[1],
+            upper_right_corner_coords[0],
+            force_zone_number=int(utm_zone),
+        )
     return utm_zone, utm_zone_letter
 
-    
+
 def calc_NDVI(ds):
     '''
-    Calculate NDVI (Jordan 1969, Rouse et al 1974) based upon bands 3 and 4. 
+    Calculate NDVI (Jordan 1969, Rouse et al 1974) based upon bands 3 and 4.
     *Note* only valid for landsat 5 and 7 right now.
     https://www.usgs.gov/core-science-systems/nli/landsat/landsat-normalized-difference-vegetation-index
-    
+
     Parameters
     ----------
     ds: xarray Dataset
@@ -262,7 +290,7 @@ def calc_NDVI(ds):
 
     nir = ds['SR_B4']
     red = ds['SR_B3']
-    ds['NDVI'] = ( nir - red ) / ( nir + red)
+    ds['NDVI'] = (nir - red) / (nir + red)
     return ds
 
 
@@ -271,8 +299,8 @@ def calc_NDII(ds):
     '''
     Calculate NDII (Hardisky et al, 1984) based upon bands 4 and 5. *Note* only valid
     for landsat 5 and 7 right now.
-    
-    
+
+
     Parameters
     ----------
     ds: xarray Dataset
@@ -285,24 +313,34 @@ def calc_NDII(ds):
     '''
     nir = ds['SR_B4']
     swir = ds['SR_B5']
-    ds['NDII'] = ( nir - swir ) / ( nir + swir)
+    ds['NDII'] = (nir - swir) / (nir + swir)
     return ds
 
-def scene_seasonal_average(path, row, year, access_key_id, secret_access_key,
-                            write_bucket=None,
-                           bands_of_interest='all', season='JJA'):
+
+def scene_seasonal_average(
+    path,
+    row,
+    year,
+    access_key_id,
+    secret_access_key,
+    write_bucket=None,
+    bands_of_interest='all',
+    season='JJA',
+):
     '''
     Given location/time specifications will grab all valid scenes,
-    mask each according to its time-specific cloud QA and then 
+    mask each according to its time-specific cloud QA and then
     return average across all masked scenes
     '''
-    aws_session = AWSSession(boto3.Session(aws_access_key_id=access_key_id,
-                                          aws_secret_access_key=secret_access_key),
-                            requester_pays=True)
-    fs = S3FileSystem(key=access_key_id,
-                    secret=secret_access_key, requester_pays=True)
+    aws_session = AWSSession(
+        boto3.Session(aws_access_key_id=access_key_id, aws_secret_access_key=secret_access_key),
+        requester_pays=True,
+    )
+    fs = S3FileSystem(key=access_key_id, secret=secret_access_key, requester_pays=True)
 
-    with dask.config.set(scheduler='single-threaded'): # this? **** #threads #single-threaded # threads??
+    with dask.config.set(
+        scheduler='single-threaded'
+    ):  # this? **** #threads #single-threaded # threads??
         with rio.Env(aws_session):
             test_credentials(aws_session)
             # all of this is just to get the right formatting stuff to access the scenes
@@ -311,9 +349,8 @@ def scene_seasonal_average(path, row, year, access_key_id, secret_access_key,
             month_keys = {'JJA': ['06', '07', '08']}
             valid_files, ds_list = [], []
 
-            if bands_of_interest=='all':
-                bands_of_interest = ['SR_B1', 'SR_B2', 'SR_B3', 
-                                         'SR_B4', 'SR_B5', 'SR_B7']
+            if bands_of_interest == 'all':
+                bands_of_interest = ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7']
             scene_stores = fs.ls(landsat_bucket.format(year, path, row))
             summer_datestamps = ['{}{}'.format(year, month) for month in month_keys[season]]
             for scene_store in scene_stores:
@@ -324,10 +361,12 @@ def scene_seasonal_average(path, row, year, access_key_id, secret_access_key,
                 scene_id = file[-40:]
                 url = 's3://{}/{}'.format(file, scene_id)
                 utm_zone, utm_letter = get_scene_utm_info(url)
-                cloud_mask_url = url+'_SR_CLOUD_QA.TIF'
+                cloud_mask_url = url + '_SR_CLOUD_QA.TIF'
                 cog_mask = cloud_qa(cloud_mask_url)
                 ds_list.append(grab_ds(url, bands_of_interest, cog_mask, utm_zone, utm_letter))
             seasonal_average = average_stack_of_scenes(ds_list)
+            print(seasonal_average.nbytes)
+            print(seasonal_average)
             del ds_list
             if write_bucket is not None:
                 # set where you'll save the final seasonal average
@@ -337,5 +376,6 @@ def scene_seasonal_average(path, row, year, access_key_id, secret_access_key,
                 return seasonal_average.chunk({'x': 1024, 'y': 1024}).load()
             else:
                 return seasonal_average.chunk({'x': 1024, 'y': 1024}).load()
+
 
 scene_seasonal_average_delayed = dask.delayed(scene_seasonal_average)

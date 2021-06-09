@@ -1,13 +1,13 @@
 import math
 import os
 
+import awswrangler as wr
+import boto3
 import fsspec
 import numpy as np
 import xarray as xr
 from gcsfs import GCSFileSystem
 from pyproj import Transformer
-import awswrangler as wr
-import boto3
 
 
 def save_to_zarr(ds, url, list_of_variables=None, mode='w', append_dim=None):
@@ -106,13 +106,11 @@ def open_and_combine_lat_lon_data(folder, tiles=None, lat_lon_box=None):
 
             if lat_lon_box is not None:
                 [min_lat, max_lat, min_lon, max_lon] = lat_lon_box
-                da = da.sel(lat=slice(min_lat, max_lat),
-                            lon=slice(min_lon, max_lon))
-                
+                da = da.sel(lat=slice(min_lat, max_lat), lon=slice(min_lon, max_lon))
+
             ds_list.append(da)
     if len(ds_list) > 0:
-        ds = xr.combine_by_coords(ds_list, 
-                        combine_attrs="drop_conflicts").chunk(
+        ds = xr.combine_by_coords(ds_list, combine_attrs="drop_conflicts").chunk(
             {'lat': 2000, 'lon': 2000}
         )
         return ds
@@ -160,13 +158,17 @@ def open_burned_area_data(tiles):
 
     return open_and_combine_lat_lon_data(folder, tiles)
 
+
 def write_parquet(df, out_path, access_key_id, secret_access_key):
     wr.s3.to_parquet(
-    df=df, index=True,
-    path=out_path, 
-    boto3_session=boto3.Session(aws_access_key_id=access_key_id,
-                                          aws_secret_access_key=secret_access_key)
+        df=df,
+        index=True,
+        path=out_path,
+        boto3_session=boto3.Session(
+            aws_access_key_id=access_key_id, aws_secret_access_key=secret_access_key
+        ),
     )
+
 
 def find_matching_records(data, lats, lons, years=None, dtype=None):
     """
@@ -176,11 +178,15 @@ def find_matching_records(data, lats, lons, years=None, dtype=None):
     if dtype is not None:
         if years is not None:
             assert 'year' in data
-            return data.sel(lat=lats, lon=lons, year=years, method="nearest").drop_vars(
-                ["lat", "lon", "year"]
-            ).astype(dtype)
+            return (
+                data.sel(lat=lats, lon=lons, year=years, method="nearest")
+                .drop_vars(["lat", "lon", "year"])
+                .astype(dtype)
+            )
 
-        return data.sel(lat=lats, lon=lons, method="nearest").drop_vars(["lat", "lon"]).astype(dtype)
+        return (
+            data.sel(lat=lats, lon=lons, method="nearest").drop_vars(["lat", "lon"]).astype(dtype)
+        )
 
     else:
         if years is not None:
@@ -290,10 +296,12 @@ def find_tiles_for_bounding_box(min_lat, max_lat, min_lon, max_lon):
 
     return out
 
+
 # create utm band letter / latitude dictionary
 # latitude represents southern edge of letter band
-BAND_NUMBERS = list(np.arange(-80,80,8))
+BAND_NUMBERS = list(np.arange(-80, 80, 8))
 BAND_NUMBERS.append(84)
+
 
 def spans_utm_border(lats):
     '''
@@ -301,9 +309,8 @@ def spans_utm_border(lats):
     '''
     min_lat = np.min(np.array(lats))
     max_lat = np.max(np.array(lats))
-    
-    if ((BAND_NUMBERS < max_lat).astype(int) + \
-        (BAND_NUMBERS > min_lat).astype(int) != 1).sum():
+
+    if ((BAND_NUMBERS < max_lat).astype(int) + (BAND_NUMBERS > min_lat).astype(int) != 1).sum():
         # this logic only evaluates if the lats span more than
         # one interval in the lat bands
         return True
@@ -318,11 +325,13 @@ def verify_projection(coords, projected, zone_number):
     If they do, grab a letter. If not, grab the other letter (and
     confirm that it also works?)
     '''
-    # test out for a given coordinate 
-    (test_x, test_y, calculated_zone_number, calculated_zone_letter) = utm.from_latlon(coords[1], coords[0], force_zone_number=zone_number)
-    tolerance = 2 # in meters - should really be within 0.5 meters
-    # These will fail if the test latlon-->meters projection was off by more than 
+    # test out for a given coordinate
+    (test_x, test_y, calculated_zone_number, calculated_zone_letter) = utm.from_latlon(
+        coords[1], coords[0], force_zone_number=zone_number
+    )
+    tolerance = 2  # in meters - should really be within 0.5 meters
+    # These will fail if the test latlon-->meters projection was off by more than
     # 2 meters from the values provided in the metadata
-    assert abs(test_x-projected[0])<tolerance
-    assert abs(test_y-projected[1])<tolerance
+    assert abs(test_x - projected[0]) < tolerance
+    assert abs(test_y - projected[1]) < tolerance
     return calculated_zone_letter
