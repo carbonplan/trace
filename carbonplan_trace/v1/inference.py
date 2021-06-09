@@ -157,20 +157,18 @@ def predict(
 ):
     model = load_xgb_model(model_path)
     # create the landsat scene for that year
-    # landsat_ds = scene_seasonal_average(
-    #     path,
-    #     row,
-    #     year,
-    #     access_key_id,
-    #     secret_access_key,
-    #     write_bucket=None,  #'s3://carbonplan-climatetrace/v1/',
-    #     bands_of_interest='all',
-    #     season=season,
-    # )
-    landsat_ds = xr.open_zarr('s3://carbonplan-climatetrace/v1/45/25/2003/JJA_reflectance.zarr')
+    landsat_ds = scene_seasonal_average(
+        path,
+        row,
+        year,
+        access_key_id,
+        secret_access_key,
+        write_bucket=None,  #'s3://carbonplan-climatetrace/v1/',
+        bands_of_interest='all',
+        season=season,
+    )
     # add in other datasets
-    # landsat_zone = landsat_ds.utm_zone_number + landsat_ds.utm_zone_letter
-    landsat_zone = '11U'
+    landsat_zone = landsat_ds.utm_zone_number + landsat_ds.utm_zone_letter
     data, tiles, bounding_box = reproject_dataset_to_fourthousandth_grid(
         landsat_ds, zone=landsat_zone
     )

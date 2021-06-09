@@ -29,7 +29,6 @@ WORLDCLIM_SCALING_FACTORS = {
     'BIO17': 1,
     'BIO18': 1,
     'BIO19': 1,
-    'BIO20': 1,
 }
 
 
@@ -58,13 +57,15 @@ def worldclim(ds, dtype='int16'):
         lon=slice(float(ds.x.min().values), float(ds.x.max().values)),
         lat=slice(float(ds.y.max().values), float(ds.y.min().values)),
     ).load()
-    all_vars = worldclim_subset.data_vars
-    for var in all_vars:
+
+    for var in WORLDCLIM_SCALING_FACTORS.keys():
         worldclim_subset[var] = worldclim_subset[var] * WORLDCLIM_SCALING_FACTORS[var]
 
     worldclim_reprojected = utils.find_matching_records(
         worldclim_subset, ds.y, ds.x, dtype=dtype
     ).load()
+    all_vars = worldclim_subset.data_vars
+
     for var in all_vars:
         ds[var] = worldclim_reprojected[var]
         del worldclim_reprojected[var]
