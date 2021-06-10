@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+import warnings
+
 import fsspec
 import geopandas
 import numcodecs
@@ -7,6 +9,7 @@ import numpy as np
 import rasterio
 import xarray as xr
 from rasterio.features import rasterize
+from tenacity import retry
 
 from carbonplan_trace.metadata import get_cf_global_attrs
 from carbonplan_trace.tiles import tiles
@@ -26,7 +29,7 @@ COARSENING_FACTOR = 100
 def calc_buffer_distance(lats, buffer_m=375):
     deg_at_eq_m = 110574.2727
 
-    buffer = np.cos(np.deg2rad(lats)) * buffer_m / deg_at_eq_m
+    buffer = buffer_m / (deg_at_eq_m * np.cos(np.deg2rad(lats)))
 
     return buffer
 
@@ -68,10 +71,25 @@ def tile_id_to_slices(tile_id, width=10):
     return lon_slice, lat_slice
 
 
+@retry
+def open_target_grid(tile_id):
+    # open template data
+    lat, lon = tile_id.split('_')
+    target_da = (
+        cat.hansen_change(lat=lat, lon=lon)
+        .to_dask()
+        .squeeze(drop=True)
+        .rename({'x': 'lon', 'y': 'lat'})
+    )
+    return target_da
+
+
 def process_one_year(year):
 
     print(year)
-    gdf = geopandas.read_parquet('/home/jovyan/trace/notebooks/2020.parquet')
+    gdf = geopandas.read_parquet(
+        f's3://carbonplan-climatetrace/inputs/processed/viirs/{year}.parquet'
+    )
 
     # filter gdf
     gdf = gdf[gdf['CONFIDENCE'].isin(['n', 'h'])]
@@ -80,8 +98,10 @@ def process_one_year(year):
     # This needs a review
     buffer = calc_buffer_distance(gdf['LATITUDE'])
     print('buffering points')
-    # I think we can ignore the userwarning below since we are using a latitude adjusted buffer
-    gdf = gdf.set_geometry(gdf.buffer(buffer))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        # Ignoring UserWarning since we are using a latitude adjusted buffer
+        gdf = gdf.set_geometry(gdf.buffer(buffer))
 
     for tile_id in tiles:
         print(tile_id)
@@ -105,14 +125,7 @@ def process_one_year(year):
         gdf_box = gdf.cx[lon_slice, lat_slice]
         print(f'found {len(gdf_box)} fire pixels in box')
 
-        # open template data
-        lat, lon = tile_id.split('_')
-        target_da = (
-            cat.hansen_change(lat=lat, lon=lon)
-            .to_dask()
-            .squeeze(drop=True)
-            .rename({'x': 'lon', 'y': 'lat'})
-        )
+        target_da = open_target_grid(tile_id)
 
         # rasterize geometries
         print('rasterizing')
@@ -144,4 +157,5 @@ def process_one_year(year):
 
 
 if __name__ == "__main__":
-    process_one_year(2020)
+    for year in range(2020, 2011, -1):
+        process_one_year(2020)
