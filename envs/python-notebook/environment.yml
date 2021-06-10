@@ -3,6 +3,7 @@ channels:
   - conda-forge
 dependencies:
   - pangeo-notebook=2021.06.05
+  - awswrangler
   - boto3
   - bottleneck
   - cartopy
@@ -52,6 +53,7 @@ dependencies:
   - scipy
   - seaborn
   - tqdm
+  - utm
   - xarray
   - xgboost
   - zarr

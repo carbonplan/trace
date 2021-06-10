@@ -1,3 +1,4 @@
+awswrangler
 carbonplan
 dask[complete]
 fsspec
@@ -11,5 +12,6 @@ pandas
 pytest
 rasterio
 scikit-learn
+utm
 xarray
 zarr
