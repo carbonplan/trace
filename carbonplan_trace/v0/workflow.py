@@ -50,7 +50,7 @@ def process_one_tile(tile_id):
     # calc emissions
     url = tile_template.format(tile_id=tile_id)
     mapper = fsspec.get_mapper(url)
-    if zarr_is_complete(mapper):
+    if not zarr_is_complete(mapper):
 
         lat, lon = tile_id.split('_')
         ds = open_hansen_change_tile(lat, lon)
@@ -67,7 +67,7 @@ def process_one_tile(tile_id):
     # coarsen emissions
     coarse_url = coarse_tile_template.format(tile_id=tile_id)
     coarse_mapper = fsspec.get_mapper(coarse_url)
-    if zarr_is_complete(coarse_mapper):
+    if not zarr_is_complete(coarse_mapper):
         ds = xr.open_zarr(mapper, consolidated=True)
         coarse_out = coarsen_emissions(ds, factor=COARSENING_FACTOR).chunk(coarse_chunks)
         print(coarse_out)
@@ -83,7 +83,7 @@ def combine_all_tiles(urls):
     print('combining all tiles')
     mapper = fsspec.get_mapper(coarse_full_template)
 
-    if zarr_is_complete(mapper):
+    if not zarr_is_complete(mapper):
         mapper.clear()
         with dask.config.set(**{'array.slicing.split_large_chunks': False}):
             list_all_coarsened = [xr.open_zarr(url, consolidated=True) for url in urls]

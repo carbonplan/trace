@@ -54,7 +54,7 @@ def open_hansen_change_tile(lat, lon):
     ds = xr.Dataset()
 
     # Global forest change data
-    variables = ["treecover2000", "lossyear"]  # "gain", "datamask" , "first", "last"]
+    variables = ["treecover2000", "lossyear"]
     for v in variables:
         da = cat.hansen_change(variable=v, lat=lat, lon=lon).to_dask().pipe(_preprocess)
         da = da.astype(dtypes[v])
