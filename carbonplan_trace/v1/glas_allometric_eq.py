@@ -155,6 +155,56 @@ ECOREGIONS_GROUPINGS = {
 }
 
 
+REALM_GROUPINGS = {
+    'afrotropic': ECOREGIONS_GROUPINGS['afrotropic'],
+    'australia': np.concatenate(
+        (
+            ECOREGIONS_GROUPINGS['australia_beets_2011'],
+            ECOREGIONS_GROUPINGS['australia_suganuma_2006'],
+            ECOREGIONS_GROUPINGS['australia_lucas_2008'],
+            ECOREGIONS_GROUPINGS['australia_baccini_2012'],
+        ),
+        axis=None,
+    ),
+    'nearctic': np.concatenate(
+        (
+            ECOREGIONS_GROUPINGS['alaska'],
+            ECOREGIONS_GROUPINGS['western_canada'],
+            ECOREGIONS_GROUPINGS['eastern_canada'],
+            ECOREGIONS_GROUPINGS['conus'],
+            ECOREGIONS_GROUPINGS['mexico_north'],
+            ECOREGIONS_GROUPINGS['mexico_south'],
+        ),
+        axis=None,
+    ),
+    'neotropic': np.concatenate(
+        (
+            ECOREGIONS_GROUPINGS['tropical_neotropic'],
+            ECOREGIONS_GROUPINGS['extratropical_neotropic'],
+        ),
+        axis=None,
+    ),
+    'palearctic': np.concatenate(
+        (
+            ECOREGIONS_GROUPINGS['western_boreal_eurasia'],
+            ECOREGIONS_GROUPINGS['eastern_boreal_eurasia'],
+            ECOREGIONS_GROUPINGS['palearctic_wang_2013'],
+            ECOREGIONS_GROUPINGS['palearctic_takagi_2015'],
+            ECOREGIONS_GROUPINGS['palearctic_yavasli_2016'],
+            ECOREGIONS_GROUPINGS['palearctic_brovkina_2015'],
+            ECOREGIONS_GROUPINGS['palearctic_alberti_2013'],
+            ECOREGIONS_GROUPINGS['palearctic_whrc'],
+            ECOREGIONS_GROUPINGS['palearctic_shang_and_chazette_2014'],
+            ECOREGIONS_GROUPINGS['palearctic_simonson_2016'],
+            ECOREGIONS_GROUPINGS['palearctic_patenaude_2004'],
+            ECOREGIONS_GROUPINGS['palearctic_suganuma_2006'],
+        ),
+        axis=None,
+    ),
+    'tropical_asia': ECOREGIONS_GROUPINGS['tropical_asia'],
+}
+
+
 CONUS_CONIFER_GROUPING = {
     'conus_conifer_nelson_2017': np.concatenate(
         (
@@ -892,3 +942,20 @@ def apply_allometric_equation(ds, min_lat, max_lat, min_lon, max_lon):
     ds = post_process_biomass(ds)
 
     return ds
+
+
+def get_realm_from_ecoregion(ecoregions):
+    ECO_TO_REALM_MAP = {}
+    for realm, list_of_eco in REALM_GROUPINGS.items():
+        new_map = {eco: realm for eco in list_of_eco}
+        ECO_TO_REALM_MAP.update(new_map)
+
+    realms = xr.apply_ufunc(
+        ECO_TO_REALM_MAP.__getitem__,
+        ecoregions,
+        vectorize=True,
+        dask='parallelized',
+        output_dtypes=['object'],
+    )
+
+    return realms.astype(str)
