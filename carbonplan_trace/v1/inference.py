@@ -1,3 +1,5 @@
+import gc
+
 import dask
 import fsspec
 import numpy as np
@@ -8,6 +10,7 @@ import xgboost as xgb
 from pyproj import CRS
 from s3fs import S3FileSystem
 
+from carbonplan_trace.v1.landsat_preprocess import scene_seasonal_average
 from carbonplan_trace.v1.model import features
 
 from ..v1 import load, utils
@@ -79,13 +82,17 @@ def dataset_to_tabular(ds):
         dataframe with columns of bands
 
     '''
+    print('to dataframe')
     df = ds.to_dataframe()
+    del ds
+    print('done to dataframe')
     # drop any nan values so we only carry around pixels we have landsat for
     # this will drop both the parts of the dataset that are empty because
     # the landsat scenes might be rotated w.r.t. the x/y grid
     # but will also drop any cloud-masked regions
     # TODO: further investigate %-age of nulls and root cause
     df = df.dropna().reset_index()
+    print('index reset')
     return df
 
 
@@ -126,9 +133,13 @@ def load_xgb_model(model_path, local_folder='./'):
 
 
 def add_all_variables(data, tiles, year, lat_lon_box=None):
+    print('load aster')
     data = load.aster(data, tiles, lat_lon_box=lat_lon_box)
+    print('load worldclim')
     data = load.worldclim(data)
+    print('load igbp')
     data = load.igbp(data, tiles, year, lat_lon_box=lat_lon_box)
+    print('load treecover')
     data = load.treecover2000(tiles, data)
     return data
 
@@ -137,9 +148,14 @@ def make_inference(input_data, model, features):
     """
     input_data is assumed to be a pandas dataframe, and model uses standard sklearn API with .predict
     """
-    input_data.dropna(subset=features, inplace=True)
+    print('drop nans')
+    input_data = input_data.dropna(subset=features)
+    print('drop infs')
     input_data = input_data.loc[(~(input_data.NDVI == np.inf) & ~(input_data.NDII == np.inf))]
+    print('predict!')
+    gc.collect()
     input_data['biomass'] = model.predict(input_data[features])
+    print('return variables')
     return input_data[['x', 'y', 'biomass']]
 
 
@@ -169,17 +185,22 @@ def predict(
     )
     # add in other datasets
     landsat_zone = landsat_ds.utm_zone_number + landsat_ds.utm_zone_letter
+    print('now reprojecting')
     data, tiles, bounding_box = reproject_dataset_to_fourthousandth_grid(
         landsat_ds, zone=landsat_zone
     )
+    print('done reprojecting')
     del landsat_ds
     data = add_all_variables(data, tiles, year, lat_lon_box=bounding_box).load()
+    print('to tabular!')
     df = dataset_to_tabular(data)
     del data
     if input_write_bucket is not None:
         utils.write_parquet(df, input_write_bucket, access_key_id, secret_access_key)
         # df = pd.read_parquet(input_write_bucket)
+    print('making inference')
     prediction = make_inference(df, model, features)
+    del df
     if output_write_bucket is not None:
         utils.write_parquet(prediction, output_write_bucket, access_key_id, secret_access_key)
         print(output_write_bucket)

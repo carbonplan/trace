@@ -1,7 +1,9 @@
+import gc
 import json
 
 import boto3
 import dask
+import numpy as np
 import rasterio as rio
 import rioxarray  # for the extension to load
 import utm
@@ -98,16 +100,22 @@ def grab_ds(item, bands_of_interest, cog_mask, utm_zone, utm_letter):
     ds = xr.concat(da_list, dim='band').to_dataset(dim='band').rename({1: 'reflectance'})
     del da_list
     ds = ds.assign_coords({'band': bands_of_interest})
-    # fill value is 0; let's switch it to nan
+    print(ds.nbytes)
     ds = ds.where(ds != 0)
+    print('in the where')
+    print(ds.nbytes)
     ds = ds.where(cog_mask < 2)
-    ds = ds.reflectance.to_dataset(dim='band')  # .drop('spatial_ref')
-    for var in ds.data_vars:
-        ds[var] = ds[var].astype('int16')
+    print(ds.nbytes)
+    ds = ds.reflectance.to_dataset(dim='band')
     ds.attrs["utm_zone_number"] = utm_zone
     ds.attrs["utm_zone_letter"] = utm_letter
+    print(ds.nbytes)
+    print('add ndvi ndii')
     ds = calc_NDVI(ds)
     ds = calc_NDII(ds)
+    gc.collect()
+    print(ds.nbytes)
+    print('finish up grabbing')
     return ds
 
 
@@ -134,16 +142,43 @@ def average_stack_of_scenes(ds_list):
     for ds in ds_list:
         utm_zone.append(ds.attrs['utm_zone_number'])
         utm_letter.append(ds.attrs['utm_zone_letter'])
+        print('dataset is size')
+        print(ds.nbytes)
     # WATCH OUT: you don't want to average scenes from multiple utm projections!!
     # thank goodness we have these two swanky assertions below
     # TODO: this could probably be moved to a test
     assert len(set(utm_zone)) == 1
     assert len(set(utm_letter)) == 1
+    print('averaging now!!')
+    # less memory-intensive way of averaging
+    number_of_datasets = len(ds_list)
+    full_ds = ds_list.pop()
+    while ds_list:
+        full_ds = sum([full_ds, ds_list.pop()]).compute()
 
-    full_ds = xr.concat(ds_list, dim='scene').mean(dim='scene').load()
-    for var in ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7']:
-        full_ds[var] = full_ds[var].astype('int16')
-    del ds_list
+    full_ds = full_ds / len(ds_list)
+    # full_ds = (sum(ds_list)/len(ds_list))#.compute()
+    # full_ds = xr.concat(ds_list, dim='scene')#.astype('int16') #, coords='minimal'
+    # print('this is after concat')
+    # print(full_ds.nbytes)
+    # # full_ds = full_ds.mean(dim='scene')#.astype('int16')
+    # print('this is after mean')
+    # print(full_ds.nbytes)
+    # gc.collect()
+    # full_ds = full_ds.compute()
+    # gc.collect()
+    # print(full_ds)
+    # print(full_ds.nbytes)
+    # # print(full_ds.shape)
+    # # averaged = full_ds.mean(axis=0)
+    # # print(averaged.shape)
+    # # print(full_ds.nbytes)
+
+    # # for var in ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7']:
+    # #     full_ds[var] = full_ds[var].astype('int16')
+    # #     print(full_ds.nbytes)
+    # print(full_ds.nbytes)
+    # del ds_list
 
     full_ds.attrs['utm_zone_number'] = utm_zone[0]
     full_ds.attrs['utm_zone_letter'] = utm_letter[0]
@@ -276,7 +311,11 @@ def calc_NDVI(ds):
 
     nir = ds['SR_B4']
     red = ds['SR_B3']
+    print('calculating ndvi')
     ds['NDVI'] = (nir - red) / (nir + red)
+    print(ds['NDVI'].nbytes)
+    # ds['NDVI'] = (ds['NDVI']*1000)#.astype('int16')
+    print(ds['NDVI'].nbytes)
     return ds
 
 
@@ -300,6 +339,8 @@ def calc_NDII(ds):
     nir = ds['SR_B4']
     swir = ds['SR_B5']
     ds['NDII'] = (nir - swir) / (nir + swir)
+    # ds['NDII'] = (ds['NDII']*1000).astype('int16')
+
     return ds
 
 
@@ -343,13 +384,23 @@ def scene_seasonal_average(
                 for summer_datestamp in summer_datestamps:
                     if summer_datestamp in scene_store:
                         valid_files.append(scene_store)
+            # ds_list = None
             for file in valid_files:
                 scene_id = file[-40:]
+                print(scene_id)
                 url = 's3://{}/{}'.format(file, scene_id)
                 utm_zone, utm_letter = get_scene_utm_info(url)
                 cloud_mask_url = url + '_SR_CLOUD_QA.TIF'
                 cog_mask = cloud_qa(cloud_mask_url)
                 ds_list.append(grab_ds(url, bands_of_interest, cog_mask, utm_zone, utm_letter))
+                # if ds_list is not None:
+                #     ds_list = np.concatenate((ds_list, grab_ds(url, bands_of_interest, cog_mask, utm_zone, utm_letter).values), dtype='int16')
+                # else:
+                #     ds_list = grab_ds(url, bands_of_interest, cog_mask, utm_zone, utm_letter).values
+                # print(ds_list[-1].nbytes)
+                # print(ds_list.size * ds_list.itemsize)
+                # ds_list = np.array(ds_list)
+            print('averaging now')
             seasonal_average = average_stack_of_scenes(ds_list)
             print(seasonal_average.nbytes)
             print(seasonal_average)
