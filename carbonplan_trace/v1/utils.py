@@ -1,8 +1,11 @@
 import math
 import os
 
+import awswrangler as wr
+import boto3
 import fsspec
 import numpy as np
+import utm
 import xarray as xr
 from gcsfs import GCSFileSystem
 from pyproj import Transformer
@@ -78,7 +81,7 @@ def open_glah01_data():
     return ds
 
 
-def open_and_combine_lat_lon_data(folder, tiles=None):
+def open_and_combine_lat_lon_data(folder, tiles=None, lat_lon_box=None):
     """
     Load lat lon data stored as 10x10 degree tiles in folder
     If tiles is none, load all data available
@@ -101,8 +104,12 @@ def open_and_combine_lat_lon_data(folder, tiles=None):
                 da = da.reindex(lat=da.lat[::-1])
             if da.lon[0] > da.lon[-1]:
                 da = da.reindex(lat=da.lon[::-1])
-            ds_list.append(da)
 
+            if lat_lon_box is not None:
+                [min_lat, max_lat, min_lon, max_lon] = lat_lon_box
+                da = da.sel(lat=slice(min_lat, max_lat), lon=slice(min_lon, max_lon))
+
+            ds_list.append(da)
     if len(ds_list) > 0:
         ds = xr.combine_by_coords(ds_list, combine_attrs="drop_conflicts").chunk(
             {'lat': 2000, 'lon': 2000}
@@ -133,14 +140,14 @@ def open_ecoregion_data(tiles=None):
     return open_and_combine_lat_lon_data(folder, tiles)
 
 
-def open_igbp_data(tiles=None):
+def open_igbp_data(tiles=None, lat_lon_box=None):
     """
     Load igbp data stored as 10x10 degree tiles
     If tiles is none, load all data available
     """
     folder = 'gs://carbonplan-climatetrace/intermediates/igbp/'
 
-    return open_and_combine_lat_lon_data(folder, tiles)
+    return open_and_combine_lat_lon_data(folder, tiles, lat_lon_box=lat_lon_box)
 
 
 def open_burned_area_data(tiles):
@@ -153,18 +160,43 @@ def open_burned_area_data(tiles):
     return open_and_combine_lat_lon_data(folder, tiles)
 
 
-def find_matching_records(data, lats, lons, years=None):
+def write_parquet(df, out_path, access_key_id, secret_access_key):
+    wr.s3.to_parquet(
+        df=df,
+        index=True,
+        path=out_path,
+        boto3_session=boto3.Session(
+            aws_access_key_id=access_key_id, aws_secret_access_key=secret_access_key
+        ),
+    )
+
+
+def find_matching_records(data, lats, lons, years=None, dtype=None):
     """
     find records in data that is nearest to locations specified in lats and lons
     lat and lon must be coordinates in data (an xarray dataset/daraarray)
     """
-    if years is not None:
-        assert 'year' in data
-        return data.sel(lat=lats, lon=lons, year=years, method="nearest").drop_vars(
-            ["lat", "lon", "year"]
+    if dtype is not None:
+        if years is not None:
+            assert 'year' in data
+            return (
+                data.sel(lat=lats, lon=lons, year=years, method="nearest")
+                .drop_vars(["lat", "lon", "year"])
+                .astype(dtype)
+            )
+
+        return (
+            data.sel(lat=lats, lon=lons, method="nearest").drop_vars(["lat", "lon"]).astype(dtype)
         )
 
-    return data.sel(lat=lats, lon=lons, method="nearest").drop_vars(["lat", "lon"])
+    else:
+        if years is not None:
+            assert 'year' in data
+            return data.sel(lat=lats, lon=lons, year=years, method="nearest").drop_vars(
+                ["lat", "lon", "year"]
+            )
+
+        return data.sel(lat=lats, lon=lons, method="nearest").drop_vars(["lat", "lon"])
 
 
 def get_lat_lon_tags_from_tile_path(tile_path):
@@ -264,3 +296,43 @@ def find_tiles_for_bounding_box(min_lat, max_lat, min_lon, max_lon):
                 out.append(fn)
 
     return out
+
+
+# create utm band letter / latitude dictionary
+# latitude represents southern edge of letter band
+BAND_NUMBERS = list(np.arange(-80, 80, 8))
+BAND_NUMBERS.append(84)
+
+
+def spans_utm_border(lats):
+    '''
+    find if a latitude range of a scene spans more than 1 band
+    '''
+    min_lat = np.min(np.array(lats))
+    max_lat = np.max(np.array(lats))
+
+    if ((BAND_NUMBERS < max_lat).astype(int) + (BAND_NUMBERS > min_lat).astype(int) != 1).sum():
+        # this logic only evaluates if the lats span more than
+        # one interval in the lat bands
+        return True
+    else:
+        return False
+
+
+def verify_projection(coords, projected, zone_number):
+    '''
+    Use UTM to project a provided lat/lon coordinate into
+    x/y space and see if they match.
+    If they do, grab a letter. If not, grab the other letter (and
+    confirm that it also works?)
+    '''
+    # test out for a given coordinate
+    (test_x, test_y, calculated_zone_number, calculated_zone_letter) = utm.from_latlon(
+        coords[1], coords[0], force_zone_number=zone_number
+    )
+    tolerance = 2  # in meters - should really be within 0.5 meters
+    # These will fail if the test latlon-->meters projection was off by more than
+    # 2 meters from the values provided in the metadata
+    assert abs(test_x - projected[0]) < tolerance
+    assert abs(test_y - projected[1]) < tolerance
+    return calculated_zone_letter
