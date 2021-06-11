@@ -160,37 +160,58 @@ def predict(
     bands_of_interest='all',
     season='JJA',
 ):
-    model = load_xgb_model(model_path)
-    # create the landsat scene for that year
-    landsat_ds = scene_seasonal_average(
-        path,
-        row,
-        year,
-        access_key_id,
-        secret_access_key,
-        write_bucket=None,  #'s3://carbonplan-climatetrace/v1/',
-        bands_of_interest='all',
-        season=season,
-    )
-    # add in other datasets
-    landsat_zone = landsat_ds.utm_zone_number + landsat_ds.utm_zone_letter
-    data, tiles, bounding_box = reproject_dataset_to_fourthousandth_grid(
-        landsat_ds, zone=landsat_zone
-    )
-    del landsat_ds
-    data = add_all_variables(data, tiles, year, lat_lon_box=bounding_box).load()
-    df = dataset_to_tabular(data)
-    del data
-    if input_write_bucket is not None:
-        utils.write_parquet(df, input_write_bucket, access_key_id, secret_access_key)
-        # df = pd.read_parquet(input_write_bucket)
-    prediction = make_inference(df, model, features)
-    del df
-    if output_write_bucket is not None:
-        utils.write_parquet(prediction, output_write_bucket, access_key_id, secret_access_key)
-        print(output_write_bucket)
-    else:
-        return prediction
+
+    with dask.config.set(
+        scheduler='single-threaded'
+    ):  # this? **** #threads #single-threaded # threads??
+        with rio.Env(aws_session):
+            aws_session = AWSSession(
+                boto3.Session(
+                    aws_access_key_id=access_key_id,
+                    aws_secret_access_key=secret_access_key,
+                    region_name='us-west-2',
+                ),
+                requester_pays=True,
+            )  # profile_name='default'), requester_pays=True)
+            fs = S3FileSystem(
+                key=access_key_id, secret=secret_access_key, region='us-west-2', requester_pays=True
+            )
+
+            model = load_xgb_model(model_path)
+            # create the landsat scene for that year
+            landsat_ds = scene_seasonal_average(
+                path,
+                row,
+                year,
+                access_key_id,
+                secret_access_key,
+                aws_session,
+                fs,
+                write_bucket=None,  #'s3://carbonplan-climatetrace/v1/',
+                bands_of_interest='all',
+                season=season,
+            )
+            # add in other datasets
+            landsat_zone = landsat_ds.utm_zone_number + landsat_ds.utm_zone_letter
+            data, tiles, bounding_box = reproject_dataset_to_fourthousandth_grid(
+                landsat_ds, zone=landsat_zone
+            )
+            del landsat_ds
+            data = add_all_variables(data, tiles, year, lat_lon_box=bounding_box).load()
+            df = dataset_to_tabular(data)
+            del data
+            if input_write_bucket is not None:
+                utils.write_parquet(df, input_write_bucket, access_key_id, secret_access_key)
+                # df = pd.read_parquet(input_write_bucket)
+            prediction = make_inference(df, model, features)
+            del df
+            if output_write_bucket is not None:
+                utils.write_parquet(
+                    prediction, output_write_bucket, access_key_id, secret_access_key
+                )
+                print(output_write_bucket)
+            else:
+                return prediction
 
 
 predict_delayed = dask.delayed(predict)

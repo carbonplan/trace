@@ -323,6 +323,8 @@ def scene_seasonal_average(
     year,
     access_key_id,
     secret_access_key,
+    aws_session,
+    fs,
     write_bucket=None,
     bands_of_interest='all',
     season='JJA',
@@ -332,55 +334,55 @@ def scene_seasonal_average(
     mask each according to its time-specific cloud QA and then
     return average across all masked scenes
     '''
-    aws_session = AWSSession(
-        boto3.Session(
-            aws_access_key_id=access_key_id,
-            aws_secret_access_key=secret_access_key,
-            region_name='us-west-2',
-        ),
-        requester_pays=True,
-    )
-    fs = S3FileSystem(
-        key=access_key_id, secret=secret_access_key, requester_pays=True, region='us-west-2'
-    )
+    # aws_session = AWSSession(
+    #     boto3.Session(
+    #         aws_access_key_id=access_key_id,
+    #         aws_secret_access_key=secret_access_key,
+    #         region_name='us-west-2',
+    #     ),
+    #     requester_pays=True,
+    # )
+    # fs = S3FileSystem(
+    #     key=access_key_id, secret=secret_access_key, requester_pays=True, region='us-west-2'
+    # )
 
-    with dask.config.set(
-        scheduler='single-threaded'
-    ):  # this? **** #threads #single-threaded # threads??
-        with rio.Env(aws_session):
-            test_credentials(aws_session)
-            # all of this is just to get the right formatting stuff to access the scenes
+    # with dask.config.set(
+    #     scheduler='single-threaded'
+    # ):  # this? **** #threads #single-threaded # threads??
+    #     with rio.Env(aws_session):
+    test_credentials(aws_session)
+    # all of this is just to get the right formatting stuff to access the scenes
 
-            landsat_bucket = 's3://usgs-landsat/collection02/level-2/standard/tm/{}/{:03d}/{:03d}/'
-            month_keys = {'JJA': ['06', '07', '08']}
-            valid_files, ds_list = [], []
+    landsat_bucket = 's3://usgs-landsat/collection02/level-2/standard/tm/{}/{:03d}/{:03d}/'
+    month_keys = {'JJA': ['06', '07', '08']}
+    valid_files, ds_list = [], []
 
-            if bands_of_interest == 'all':
-                bands_of_interest = ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7']
-            scene_stores = fs.ls(landsat_bucket.format(year, path, row))
-            summer_datestamps = ['{}{}'.format(year, month) for month in month_keys[season]]
-            for scene_store in scene_stores:
-                for summer_datestamp in summer_datestamps:
-                    if summer_datestamp in scene_store:
-                        valid_files.append(scene_store)
-            # ds_list = None
-            for file in valid_files:
-                scene_id = file[-40:]
-                url = 's3://{}/{}'.format(file, scene_id)
-                utm_zone, utm_letter = get_scene_utm_info(url)
-                cloud_mask_url = url + '_SR_CLOUD_QA.TIF'
-                cog_mask = cloud_qa(cloud_mask_url)
-                ds_list.append(grab_ds(url, bands_of_interest, cog_mask, utm_zone, utm_letter))
-            seasonal_average = average_stack_of_scenes(ds_list)
-            del ds_list
-            if write_bucket is not None:
-                # set where you'll save the final seasonal average
-                url = f'{write_bucket}{path}/{row}/{year}/{season}_reflectance.zarr'
-                mapper = fs.get_mapper(url)
-                write_out(seasonal_average.chunk({'x': 1024, 'y': 1024}), mapper)
-                return seasonal_average.chunk({'x': 1024, 'y': 1024}).load()
-            else:
-                return seasonal_average.chunk({'x': 1024, 'y': 1024}).load()
+    if bands_of_interest == 'all':
+        bands_of_interest = ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7']
+    scene_stores = fs.ls(landsat_bucket.format(year, path, row))
+    summer_datestamps = ['{}{}'.format(year, month) for month in month_keys[season]]
+    for scene_store in scene_stores:
+        for summer_datestamp in summer_datestamps:
+            if summer_datestamp in scene_store:
+                valid_files.append(scene_store)
+    # ds_list = None
+    for file in valid_files:
+        scene_id = file[-40:]
+        url = 's3://{}/{}'.format(file, scene_id)
+        utm_zone, utm_letter = get_scene_utm_info(url)
+        cloud_mask_url = url + '_SR_CLOUD_QA.TIF'
+        cog_mask = cloud_qa(cloud_mask_url)
+        ds_list.append(grab_ds(url, bands_of_interest, cog_mask, utm_zone, utm_letter))
+    seasonal_average = average_stack_of_scenes(ds_list)
+    del ds_list
+    if write_bucket is not None:
+        # set where you'll save the final seasonal average
+        url = f'{write_bucket}{path}/{row}/{year}/{season}_reflectance.zarr'
+        mapper = fs.get_mapper(url)
+        write_out(seasonal_average.chunk({'x': 1024, 'y': 1024}), mapper)
+        return seasonal_average.chunk({'x': 1024, 'y': 1024}).load()
+    else:
+        return seasonal_average.chunk({'x': 1024, 'y': 1024}).load()
 
 
 scene_seasonal_average_delayed = dask.delayed(scene_seasonal_average)
