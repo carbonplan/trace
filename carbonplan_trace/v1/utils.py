@@ -166,7 +166,9 @@ def write_parquet(df, out_path, access_key_id, secret_access_key):
         index=True,
         path=out_path,
         boto3_session=boto3.Session(
-            aws_access_key_id=access_key_id, aws_secret_access_key=secret_access_key
+            aws_access_key_id=access_key_id,
+            aws_secret_access_key=secret_access_key,
+            region='us-west-2',
         ),
     )
 

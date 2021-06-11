@@ -333,10 +333,16 @@ def scene_seasonal_average(
     return average across all masked scenes
     '''
     aws_session = AWSSession(
-        boto3.Session(aws_access_key_id=access_key_id, aws_secret_access_key=secret_access_key),
+        boto3.Session(
+            aws_access_key_id=access_key_id,
+            aws_secret_access_key=secret_access_key,
+            region_name='us-west-2',
+        ),
         requester_pays=True,
     )
-    fs = S3FileSystem(key=access_key_id, secret=secret_access_key, requester_pays=True)
+    fs = S3FileSystem(
+        key=access_key_id, secret=secret_access_key, requester_pays=True, region='us-west-2'
+    )
 
     with dask.config.set(
         scheduler='single-threaded'

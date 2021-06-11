@@ -8,7 +8,7 @@ from ..v1 import utils
 
 # flake8: noqa
 
-fs = S3FileSystem(profile='default', requester_pays=True)
+fs = S3FileSystem(requester_pays=True)
 WORLDCLIM_SCALING_FACTORS = {
     'BIO01': 100,
     'BIO02': 100,
