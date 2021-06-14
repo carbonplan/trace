@@ -28,12 +28,11 @@ def calculate_derived_variables(data, tiles):
         "sig_begin_dist",
         "sig_end_dist",
         "ground_peak_dist",
-        "wf_extent",
     ]
-    data = ht.get_all_height_metrics(
-        ds=data,
-        metrics=metrics,
-    )
+    for metric in metrics:
+        data = ht.get_dist_metric_value(data, metric)
+
+    data = ht.get_height_metric_value(ds=data, metric="wf_extent", recalc=True)
 
     data['glas_elev'] = data.elevation + data.elevation_correction
 
@@ -73,10 +72,8 @@ def get_mask(ds):
     True in mask = records to use
     """
     # all non nulls in the GLAH14 dataset
-    mask = ~ds.lat.isnull()  # .load()
+    mask = ds.lat.notnull()
     mask.name = 'mask'
-    # m1 = 100.0 - mask.mean().values * 100.0
-    # print(f'filtering out {m1}% of records due to null GLAH14 data')
 
     # Harris et al 2021 filtering conditions listed in Supplementary Information
     mask = (
@@ -91,15 +88,7 @@ def get_mask(ds):
         # signal end is less than 20 and greater than 1m (otherwise indicates sig end is improperly captured)
         & (abs(ds.sig_end_offset) <= 20)
         & (abs(ds.sig_end_offset) >= 1)
-        # leading edge <= 50% of wf extent, otherwise indicates large distances in canopy height
-        & (ds.leading_edge_extent <= (ds.wf_extent * 0.5))
-        # trailing edge <= 35% of wf extent, otherwise indicates impacts from high slope
-        & (ds.trailing_edge_extent <= (ds.wf_extent * 0.35))
     )
-
-    # mask = mask.load()
-    # m2 = 100.0 - mask.mean().values * 100.0
-    # print(f'filtering out {m2-m1}% of records due to additional filtering by Harris et al')
 
     return mask
 
@@ -114,12 +103,17 @@ def filter_large_leading_and_trailing_edge_extent(ds):
         metrics=metrics,
     )
     mask = (
-        # leading edge <= 50% of wf extent, otherwise indicates large distances in canopy height
+        # leading edge <= 50% of wf extent, otherwise indicates large differences in canopy height
         (ds.leading_edge_extent <= (ds.wf_extent * 0.5))
         # trailing edge <= 35% of wf extent, otherwise indicates impacts from high slope
         & (ds.trailing_edge_extent <= (ds.wf_extent * 0.35))
     )
+    total = ds.dims['unique_index']
     ds = ds.where(mask, drop=True)
+    remained = ds.dims['unique_index']
+    print(
+        f'after edge extent filtering, {remained} valid shots remained out of {total} ({100 - round(remained/total*100, 2)}%) filtered'
+    )
     return ds
 
 
@@ -249,13 +243,13 @@ def preprocess(ds, min_lat, max_lat, min_lon, max_lon):
     ds = ds.stack(unique_index=("record_index", "shot_number"))
 
     # apply filtering
-    ds["mask"] = get_mask(ds)
-    # total = ds.noise_mean.fillna(0).count().values
-    ds = ds.where(ds.mask, drop=True)
-    # remained = ds.noise_mean.fillna(0).count().values
-    # print(
-    #     f'after filtering, {remained} valid shots remained out of {total} ({100 - round(remained/total*100, 2)}%) filtered'
-    # )
+    mask = get_mask(ds)
+    total = ds.dims['unique_index']
+    ds = ds.where(mask, drop=True)
+    remained = ds.dims['unique_index']
+    print(
+        f'after initial filtering, {remained} valid shots remained out of {total} ({100 - round(remained/total*100, 2)}%) filtered'
+    )
 
     # smooth and denoise waveform
     # print('before smoothing: current time is ', time.strftime("%H:%M:%S", time.localtime()))

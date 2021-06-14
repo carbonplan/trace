@@ -279,9 +279,7 @@ def pct_80_canopy_ht(ds):
 
 def get_leading_edge_extent(ds):
     """
-    the height difference between the elevation of the signal start and the first elevation at which the
-    waveform is half of the maximum signal above the background noise value.
-    see https://daac.ornl.gov/NACP/guides/NACP_Boreal_Biome_Biomass.html for more details
+    the difference between the signal beginning and the H90
     """
     return get_heights_from_distance(
         ds, top_metric='sig_begin_dist', bottom_metric='pct_90_dist'
@@ -290,12 +288,10 @@ def get_leading_edge_extent(ds):
 
 def get_trailing_edge_extent(ds):
     """
-    the height difference between the lowest elevation at which the signal strength of the waveform is half of
-    the maximum signal above the background noise value, and the elevation of the signal end
-    see https://daac.ornl.gov/NACP/guides/NACP_Boreal_Biome_Biomass.html for more details
+    the difference between signal end and H10
     """
     return get_heights_from_distance(
-        ds, top_metric='trailing_edge_dist', bottom_metric='pct_10_dist'
+        ds, top_metric='pct_10_dist', bottom_metric='sig_end_dist'
     ).clip(min=0)
 
 
@@ -304,8 +300,7 @@ def get_sig_begin_dist(ds):
     Obtained directly from GLAH14 data
     """
     # calculate the bias between reference range to the bottom of received wf
-    ref_range_bias = ds.rec_wf_sample_dist.max(dim="rec_bin") - ds.ref_range
-    return ds.sig_begin_offset + ds.ref_range + ref_range_bias
+    return ds.sig_begin_offset + ds.rec_wf_sample_dist.max(dim="rec_bin")
 
 
 def get_sig_end_dist(ds):
@@ -313,8 +308,7 @@ def get_sig_end_dist(ds):
     Obtained directly from GLAH14 data
     """
     # calculate the bias between reference range to the bottom of received wf
-    ref_range_bias = ds.rec_wf_sample_dist.max(dim="rec_bin") - ds.ref_range
-    return ds.sig_end_offset + ds.ref_range + ref_range_bias
+    return ds.sig_end_offset + ds.rec_wf_sample_dist.max(dim="rec_bin")
 
 
 def get_centroid_dist(ds):
@@ -322,8 +316,7 @@ def get_centroid_dist(ds):
     Obtained directly from GLAH14 data
     """
     # calculate the bias between reference range to the bottom of received wf
-    ref_range_bias = ds.rec_wf_sample_dist.max(dim="rec_bin") - ds.ref_range
-    return ds.centroid_offset + ds.ref_range + ref_range_bias
+    return ds.centroid_offset + ds.rec_wf_sample_dist.max(dim="rec_bin")
 
 
 def get_gaussian_fit_dist(ds):
@@ -331,8 +324,7 @@ def get_gaussian_fit_dist(ds):
     Obtained directly from GLAH14 data
     """
     # calculate the bias between reference range to the bottom of received wf
-    ref_range_bias = ds.rec_wf_sample_dist.max(dim="rec_bin") - ds.ref_range
-    return ds.gaussian_mu + ds.ref_range + ref_range_bias
+    return ds.gaussian_mu + ds.rec_wf_sample_dist.max(dim="rec_bin")
 
 
 def get_percentile_dist(ds, percentile):
@@ -739,7 +731,7 @@ def energy_adj_ground_to_sig_end(ds):
         ds.rec_wf.astype(float).round(6).fillna(-0.195279),
         vectorize=True,
         dask='parallelized',
-        output_dtypes=int,
+        output_dtypes=[int],
     )
 
     ds = get_dist_metric_value(ds, metric='adj_ground_peak_dist')
@@ -815,6 +807,7 @@ def plot_shot(record):
     bins = record.rec_wf_sample_dist
     plt.figure(figsize=(6, 10))
     plt.scatter(record.rec_wf, bins, s=5, label="Raw")  # raw wf
+    xmax = record.rec_wf.max(dim='rec_bin') + 0.1
 
     gaussian_sigma_in_m = (record.gaussian_sigma * SECONDS_IN_NANOSECONDS * SPEED_OF_LIGHT) / 2
     gaussians = gaussian(
@@ -833,13 +826,13 @@ def plot_shot(record):
 
     # plot various variables found in GLAH14
     plt.plot(
-        [-0.05, 0.5],
+        [-0.05, xmax],
         np.array([record.sig_begin_dist, record.sig_begin_dist]),
         "g--",
         label="Signal Beginning",
     )
     plt.plot(
-        [-0.05, 0.5],
+        [-0.05, xmax],
         np.array([record.sig_end_dist, record.sig_end_dist]),
         "g--",
         label="Signal End",
@@ -863,12 +856,13 @@ def plot_shot(record):
     plt.plot(record.processed_wf + record.noise_mean, bins, "k-", label="Filtered Waveform")
 
     plt.plot(
-        [-0.05, 0.5],
+        [-0.05, xmax],
         [record.ground_peak_dist, record.ground_peak_dist],
         "y--",
         label="Ground Peak",
     )
 
+    # plt.ylim(record.sig_end_dist+10, record.sig_begin_dist-10)
     plt.gca().invert_yaxis()
     plt.xlabel("lidar return (joules)")
     plt.ylabel("distance from satelite (m)")
@@ -949,7 +943,6 @@ def get_height_metric_value(ds, metric, recalc=False):
 
 def get_all_height_metrics(ds, metrics, recalc=False):
     for metric in metrics:
-        # print(metric)
         ds = get_height_metric_value(ds, metric, recalc=recalc)
 
     return ds
@@ -1009,6 +1002,8 @@ HEIGHT_METRICS_MAP = {
     "acq2_Nelson": acq2_Nelson,
     "acq3_Nelson": acq3_Nelson,
     "wf_extent": sig_beg_to_sig_end_ht,
+    "leading_edge_extent": get_leading_edge_extent,
+    "trailing_edge_extent": get_trailing_edge_extent,
     # "wf_max_e": highest_energy_value,
     # "wf_variance": wf_variance,
     # "wf_skew": wf_skew,
