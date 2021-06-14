@@ -29,8 +29,6 @@ def calculate_derived_variables(data, tiles):
         "sig_end_dist",
         "ground_peak_dist",
         "wf_extent",
-        "leading_edge_extent",
-        "trailing_edge_extent",
     ]
     data = ht.get_all_height_metrics(
         ds=data,
@@ -89,21 +87,40 @@ def get_mask(ds):
         # discrepancy bt SRTM and GLAS derived elevation less than 30m
         & (abs(ds.srtm_elev.fillna(ds.glas_elev) - ds.glas_elev) <= 30)
         # signal beginning is less than 70m (otherwise indicates potential inference of signal)
-        & (abs(ds.ground_peak_dist - ds.sig_begin_dist) <= 70)
+        & (abs(ds.sig_begin_offset) <= 70)
         # signal end is less than 20 and greater than 1m (otherwise indicates sig end is improperly captured)
-        & (abs(ds.ground_peak_dist - ds.sig_end_dist) <= 20)
-        & (abs(ds.ground_peak_dist - ds.sig_end_dist) >= 1)
+        & (abs(ds.sig_end_offset) <= 20)
+        & (abs(ds.sig_end_offset) >= 1)
         # leading edge <= 50% of wf extent, otherwise indicates large distances in canopy height
         & (ds.leading_edge_extent <= (ds.wf_extent * 0.5))
         # trailing edge <= 35% of wf extent, otherwise indicates impacts from high slope
         & (ds.trailing_edge_extent <= (ds.wf_extent * 0.35))
     )
 
-    mask = mask  # .load()
+    # mask = mask.load()
     # m2 = 100.0 - mask.mean().values * 100.0
     # print(f'filtering out {m2-m1}% of records due to additional filtering by Harris et al')
 
     return mask
+
+
+def filter_large_leading_and_trailing_edge_extent(ds):
+    metrics = [
+        "leading_edge_extent",
+        "trailing_edge_extent",
+    ]
+    ds = ht.get_all_height_metrics(
+        ds=ds,
+        metrics=metrics,
+    )
+    mask = (
+        # leading edge <= 50% of wf extent, otherwise indicates large distances in canopy height
+        (ds.leading_edge_extent <= (ds.wf_extent * 0.5))
+        # trailing edge <= 35% of wf extent, otherwise indicates impacts from high slope
+        & (ds.trailing_edge_extent <= (ds.wf_extent * 0.35))
+    )
+    ds = ds.where(mask, drop=True)
+    return ds
 
 
 def gaussian(x, amplitude, mean, stddev):
@@ -160,6 +177,7 @@ def get_modeled_waveform(ds):
     Sum up the gaussian peaks in GLAH14
     """
     # we have gaussian_fit_dist in meters, gaussian_amp in volts
+    # gaussian sigma is in nanoseconds, switch to meters and divide by 2 to get 1 side stdev
     gaussian_sigma_in_m = (ds.gaussian_sigma * SECONDS_IN_NANOSECONDS * SPEED_OF_LIGHT) / 2
     modeled_wf = gaussian(
         x=ds.rec_wf_sample_dist,
@@ -243,6 +261,9 @@ def preprocess(ds, min_lat, max_lat, min_lon, max_lon):
     # print('before smoothing: current time is ', time.strftime("%H:%M:%S", time.localtime()))
     ds["processed_wf"] = get_smoothed_actual_waveform(ds)
     ds["modeled_wf"] = get_modeled_waveform(ds)
+    # leading and trailing edge extent calculations require processed wf (which is time consuming to calculate)
+    # thus, filtering is broken into two parts
+    ds = filter_large_leading_and_trailing_edge_extent(ds)
 
     # preprocess the coordinate variables
     # print('before coordinates: current time is ', time.strftime("%H:%M:%S", time.localtime()))

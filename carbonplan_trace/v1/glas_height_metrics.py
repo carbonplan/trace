@@ -284,7 +284,7 @@ def get_leading_edge_extent(ds):
     see https://daac.ornl.gov/NACP/guides/NACP_Boreal_Biome_Biomass.html for more details
     """
     return get_heights_from_distance(
-        ds, top_metric='sig_begin_dist', bottom_metric='leading_edge_dist'
+        ds, top_metric='sig_begin_dist', bottom_metric='pct_90_dist'
     ).clip(min=0)
 
 
@@ -295,7 +295,7 @@ def get_trailing_edge_extent(ds):
     see https://daac.ornl.gov/NACP/guides/NACP_Boreal_Biome_Biomass.html for more details
     """
     return get_heights_from_distance(
-        ds, top_metric='trailing_edge_dist', bottom_metric='sig_end_dist'
+        ds, top_metric='trailing_edge_dist', bottom_metric='pct_10_dist'
     ).clip(min=0)
 
 
