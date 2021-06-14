@@ -63,3 +63,4 @@ dependencies:
       - carbonplan-data
       - carbonplan-styles
       - git+https://github.com/carbonplan/trace.git@main
+      - git+https://github.com/pangeo-data/xbatcher@f9d40fdb0936c2d97b1964f2ce2ae4481ee1f715
