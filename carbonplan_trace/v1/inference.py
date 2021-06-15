@@ -1,5 +1,7 @@
 import gc
+import os
 
+import boto3
 import dask
 import fsspec
 import numpy as np
@@ -9,11 +11,8 @@ import utm
 import xarray as xr
 import xgboost as xgb
 from pyproj import CRS
-from s3fs import S3FileSystem
-import os
-import boto3
 from rasterio.session import AWSSession
-
+from s3fs import S3FileSystem
 
 from carbonplan_trace.v1.landsat_preprocess import scene_seasonal_average
 from carbonplan_trace.v1.model import features
@@ -133,7 +132,7 @@ def load_xgb_model(model_path, fs, local_folder='./'):
 
     model = xgb.XGBRegressor()
     model.load_model(model_path)
-    
+
     return model
 
 
@@ -169,20 +168,16 @@ def predict(
     season='JJA',
 ):
     core_session = boto3.Session(
-                    aws_access_key_id=access_key_id,
-                    aws_secret_access_key=secret_access_key,
-                    region_name='us-west-2',
-                )
-    aws_session = AWSSession(core_session,
-                requester_pays=True,
-    fs = S3FileSystem(
-                key=access_key_id, secret=secret_access_key, requester_pays=True
-            )
+        aws_access_key_id=access_key_id,
+        aws_secret_access_key=secret_access_key,
+        region_name='us-west-2',
+    )
+    aws_session = AWSSession(core_session, requester_pays=True)
+    fs = S3FileSystem(key=access_key_id, secret=secret_access_key, requester_pays=True)
     with dask.config.set(
         scheduler='single-threaded'
     ):  # this? **** #threads #single-threaded # threads??
         with rio.Env(aws_session):
-            
 
             model = load_xgb_model(model_path, fs)
             # create the landsat scene for that year
