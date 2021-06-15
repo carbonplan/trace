@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from functools import partial
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -10,7 +11,9 @@ def sig_beg_to_sig_end_ht(ds):
     """
     Waveform extent from signal beginning to end
     """
-    return get_heights_from_distance(ds, top_metric='sig_begin_dist', bottom_metric='sig_end_dist')
+    return get_heights_from_distance(
+        ds, top_metric='sig_begin_dist', bottom_metric='sig_end_dist'
+    ).clip(min=0)
 
 
 def sig_beg_to_ground_ht(ds):
@@ -186,15 +189,27 @@ def pct_90_to_sig_end_ht(ds):
 
 
 def pct_10_from_sig_beg_to_sig_end_ht(ds):
-    return get_heights_from_distance(ds, top_metric='pct_90_dist', bottom_metric='sig_end_dist')
+    return get_heights_from_distance(
+        ds, top_metric='pct_90_dist_modeled_wf', bottom_metric='sig_end_dist'
+    )
 
 
 def pct_25_from_sig_beg_to_sig_end_ht(ds):
-    return get_heights_from_distance(ds, top_metric='pct_75_dist', bottom_metric='sig_end_dist')
+    return get_heights_from_distance(
+        ds, top_metric='pct_75_dist_modeled_wf', bottom_metric='sig_end_dist'
+    )
+
+
+def pct_50_from_sig_beg_to_sig_end_ht(ds):
+    return get_heights_from_distance(
+        ds, top_metric='pct_50_dist_modeled_wf', bottom_metric='sig_end_dist'
+    )
 
 
 def pct_60_from_sig_beg_to_sig_end_ht(ds):
-    return get_heights_from_distance(ds, top_metric='pct_40_dist', bottom_metric='sig_end_dist')
+    return get_heights_from_distance(
+        ds, top_metric='pct_40_dist_modeled_wf', bottom_metric='sig_end_dist'
+    )
 
 
 def pct_10_of_sig_beg_and_adj_ground_to_adj_ground_ht(ds):
@@ -264,24 +279,20 @@ def pct_80_canopy_ht(ds):
 
 def get_leading_edge_extent(ds):
     """
-    the height difference between the elevation of the signal start and the first elevation at which the
-    waveform is half of the maximum signal above the background noise value.
-    see https://daac.ornl.gov/NACP/guides/NACP_Boreal_Biome_Biomass.html for more details
+    the difference between the signal beginning (closest point to satellite that crossed noise threshold) and the H90
+    (the height at which 90% of energy was reached from signal end to signal beginning, H90 is closer to satellite compared
+    to H10)
     """
-    return get_heights_from_distance(
-        ds, top_metric='sig_begin_dist', bottom_metric='leading_edge_dist'
-    )
+    return get_heights_from_distance(ds, top_metric='sig_begin_dist', bottom_metric='pct_90_dist')
 
 
 def get_trailing_edge_extent(ds):
     """
-    the height difference between the lowest elevation at which the signal strength of the waveform is half of
-    the maximum signal above the background noise value, and the elevation of the signal end
-    see https://daac.ornl.gov/NACP/guides/NACP_Boreal_Biome_Biomass.html for more details
+    the difference between the signal end (furtherst point to satellite that crossed noise threshold) and the H10
+    (the height at which 10% of energy was reached from signal end to signal beginning, H90 is closer to satellite compared
+    to H10)
     """
-    return get_heights_from_distance(
-        ds, top_metric='trailing_edge_dist', bottom_metric='sig_end_dist'
-    )
+    return get_heights_from_distance(ds, top_metric='pct_10_dist', bottom_metric='sig_end_dist')
 
 
 def get_sig_begin_dist(ds):
@@ -289,8 +300,7 @@ def get_sig_begin_dist(ds):
     Obtained directly from GLAH14 data
     """
     # calculate the bias between reference range to the bottom of received wf
-    ref_range_bias = ds.rec_wf_sample_dist.max(dim="rec_bin") - ds.ref_range
-    return ds.sig_begin_offset + ds.ref_range + ref_range_bias
+    return ds.sig_begin_offset + ds.rec_wf_sample_dist.max(dim="rec_bin")
 
 
 def get_sig_end_dist(ds):
@@ -298,8 +308,7 @@ def get_sig_end_dist(ds):
     Obtained directly from GLAH14 data
     """
     # calculate the bias between reference range to the bottom of received wf
-    ref_range_bias = ds.rec_wf_sample_dist.max(dim="rec_bin") - ds.ref_range
-    return ds.sig_end_offset + ds.ref_range + ref_range_bias
+    return ds.sig_end_offset + ds.rec_wf_sample_dist.max(dim="rec_bin")
 
 
 def get_centroid_dist(ds):
@@ -307,8 +316,7 @@ def get_centroid_dist(ds):
     Obtained directly from GLAH14 data
     """
     # calculate the bias between reference range to the bottom of received wf
-    ref_range_bias = ds.rec_wf_sample_dist.max(dim="rec_bin") - ds.ref_range
-    return ds.centroid_offset + ds.ref_range + ref_range_bias
+    return ds.centroid_offset + ds.rec_wf_sample_dist.max(dim="rec_bin")
 
 
 def get_gaussian_fit_dist(ds):
@@ -316,8 +324,7 @@ def get_gaussian_fit_dist(ds):
     Obtained directly from GLAH14 data
     """
     # calculate the bias between reference range to the bottom of received wf
-    ref_range_bias = ds.rec_wf_sample_dist.max(dim="rec_bin") - ds.ref_range
-    return ds.gaussian_mu + ds.ref_range + ref_range_bias
+    return ds.gaussian_mu + ds.rec_wf_sample_dist.max(dim="rec_bin")
 
 
 def get_percentile_dist(ds, percentile):
@@ -330,6 +337,21 @@ def get_percentile_dist(ds, percentile):
     """
     total = ds['processed_wf'].sum(dim="rec_bin")
     cumsum = ds['processed_wf'].cumsum(dim="rec_bin")
+    target = total * percentile / 100.0
+
+    return ds.rec_wf_sample_dist.where(cumsum > target).max(dim="rec_bin")
+
+
+def get_percentile_dist_modeled_wf(ds, percentile):
+    """
+    the distance at which x% of the total waveform energy from signal beginning to signal end has been reached.
+    energy accumulated relative to signal end.
+    as an example, 25th percentile dist should be larger than 50th percentile dist, where larger dist = further
+    to the satellite = lower elevation on earth
+    percentiles is a list in hundredth format (e.g. to get 10th percentile input value 10)
+    """
+    total = ds['modeled_wf'].sum(dim="rec_bin")
+    cumsum = ds['modeled_wf'].cumsum(dim="rec_bin")
     target = total * percentile / 100.0
 
     return ds.rec_wf_sample_dist.where(cumsum > target).max(dim="rec_bin")
@@ -539,87 +561,6 @@ def get_mean_dist(ds):
     return bins.weighted(sig_beg_to_adj_ground).mean("rec_bin")
 
 
-# TODO: change the next set of functions to take in pct as a param and avoid repeating
-def get_05th_pct_dist(ds):
-    return get_percentile_dist(ds, 5)
-
-
-def get_10th_pct_dist(ds):
-    return get_percentile_dist(ds, 10)
-
-
-def get_20th_pct_dist(ds):
-    return get_percentile_dist(ds, 20)
-
-
-def get_25th_pct_dist(ds):
-    return get_percentile_dist(ds, 25)
-
-
-def get_30th_pct_dist(ds):
-    return get_percentile_dist(ds, 30)
-
-
-def get_40th_pct_dist(ds):
-    return get_percentile_dist(ds, 40)
-
-
-def get_50th_pct_dist(ds):
-    return get_percentile_dist(ds, 50)
-
-
-def get_75th_pct_dist(ds):
-    return get_percentile_dist(ds, 75)
-
-
-def get_80th_pct_dist(ds):
-    return get_percentile_dist(ds, 80)
-
-
-def get_90th_pct_dist(ds):
-    return get_percentile_dist(ds, 90)
-
-
-def get_pct_10_of_sig_beg_and_adj_ground_dist(ds):
-    return get_percentile_of_sig_beg_and_adj_ground_dist(ds, 10)
-
-
-def get_pct_80_of_sig_beg_and_adj_ground_dist(ds):
-    return get_percentile_of_sig_beg_and_adj_ground_dist(ds, 80)
-
-
-def get_pct_90_of_sig_beg_and_adj_ground_dist(ds):
-    return get_percentile_of_sig_beg_and_adj_ground_dist(ds, 90)
-
-
-def get_pct_05_canopy_dist(ds):
-    return get_percentile_canopy_dist(ds, 5)
-
-
-def get_pct_10_canopy_dist(ds):
-    return get_percentile_canopy_dist(ds, 10)
-
-
-def get_pct_20_canopy_dist(ds):
-    return get_percentile_canopy_dist(ds, 20)
-
-
-def get_pct_30_canopy_dist(ds):
-    return get_percentile_canopy_dist(ds, 30)
-
-
-def get_pct_50_canopy_dist(ds):
-    return get_percentile_canopy_dist(ds, 50)
-
-
-def get_pct_75_canopy_dist(ds):
-    return get_percentile_canopy_dist(ds, 75)
-
-
-def get_pct_80_canopy_dist(ds):
-    return get_percentile_canopy_dist(ds, 80)
-
-
 def get_wf_max_e_dist(ds):
     """
     distance at which max waveform energy occurs
@@ -758,17 +699,17 @@ def proportion_sig_beg_to_start_of_ground(ds):
     # the processed wf is from sig beg to sig end, select sig beg to ground peak
     sig_beg_to_ground = select_valid_area(
         bins=ds.rec_wf_sample_dist,
-        wf=ds.processed_wf,
+        wf=ds.modeled_wf,
         signal_begin_dist=ds.sig_begin_dist,
         signal_end_dist=ds.start_of_ground_peak_dist,
     )
 
     # make sure dimensions matches up
-    dims = ds.processed_wf.dims
+    dims = ds.modeled_wf.dims
     sig_beg_to_ground = sig_beg_to_ground.transpose(dims[0], dims[1])
 
     # total energy of the smoothed waveform
-    total = ds.processed_wf.sum(dim="rec_bin")
+    total = ds.modeled_wf.sum(dim="rec_bin")
 
     return sig_beg_to_ground.sum(dim="rec_bin") / total
 
@@ -790,7 +731,7 @@ def energy_adj_ground_to_sig_end(ds):
         ds.rec_wf.astype(float).round(6).fillna(-0.195279),
         vectorize=True,
         dask='parallelized',
-        output_dtypes=int,
+        output_dtypes=[int],
     )
 
     ds = get_dist_metric_value(ds, metric='adj_ground_peak_dist')
@@ -861,19 +802,37 @@ def acq3_Nelson(ds):
 
 
 def plot_shot(record):
+    from carbonplan_trace.v1.glas_preprocess import SECONDS_IN_NANOSECONDS, SPEED_OF_LIGHT, gaussian
+
     bins = record.rec_wf_sample_dist
     plt.figure(figsize=(6, 10))
     plt.scatter(record.rec_wf, bins, s=5, label="Raw")  # raw wf
+    xmax = record.rec_wf.max(dim='rec_bin') + 0.1
+
+    gaussian_sigma_in_m = (record.gaussian_sigma * SECONDS_IN_NANOSECONDS * SPEED_OF_LIGHT) / 2
+    gaussians = gaussian(
+        x=record['rec_wf_sample_dist'],
+        amplitude=record['gaussian_amp'],
+        mean=record['gaussian_fit_dist'],
+        stddev=gaussian_sigma_in_m,
+    )
+    for i, g in enumerate(gaussians):
+        if i == 0:
+            plt.plot(g, bins, '0.5', label='gaussin curve')
+        else:
+            plt.plot(g, bins, '0.5')
+
+    plt.plot(record['modeled_wf'], bins, 'r-', label='gaussian summed')
 
     # plot various variables found in GLAH14
     plt.plot(
-        [-0.05, 0.5],
+        [-0.05, xmax],
         np.array([record.sig_begin_dist, record.sig_begin_dist]),
-        "r--",
+        "g--",
         label="Signal Beginning",
     )
     plt.plot(
-        [-0.05, 0.5],
+        [-0.05, xmax],
         np.array([record.sig_end_dist, record.sig_end_dist]),
         "g--",
         label="Signal End",
@@ -896,27 +855,14 @@ def plot_shot(record):
     # plot filtered wf
     plt.plot(record.processed_wf + record.noise_mean, bins, "k-", label="Filtered Waveform")
 
-    # plot percentile heights
     plt.plot(
-        [-0.05, 0.5],
-        [record["10th_distance"], record["10th_distance"]],
-        "b--",
-        label="10th Percentile",
-    )
-    plt.plot([-0.05, 0.5], [record.meanH_dist, record.meanH_dist], "c--", label="Mean H")
-    plt.plot(
-        [-0.05, 0.5],
-        [record["90th_distance"], record["90th_distance"]],
-        "m--",
-        label="90th Percentile",
-    )
-    plt.plot(
-        [-0.05, 0.5],
+        [-0.05, xmax],
         [record.ground_peak_dist, record.ground_peak_dist],
         "y--",
         label="Ground Peak",
     )
 
+    # plt.ylim(record.sig_end_dist+10, record.sig_begin_dist-10)
     plt.gca().invert_yaxis()
     plt.xlabel("lidar return (joules)")
     plt.ylabel("distance from satelite (m)")
@@ -935,31 +881,41 @@ DISTANCE_METRICS_MAP = {
     "adj_ground_peak_dist": get_adj_ground_peak_dist,
     "quadratic_mean_dist": get_quadratic_mean_dist,
     "mean_dist": get_mean_dist,
-    "pct_05_dist": get_05th_pct_dist,
-    "pct_10_dist": get_10th_pct_dist,
-    "pct_20_dist": get_20th_pct_dist,
-    "pct_25_dist": get_25th_pct_dist,
-    "pct_30_dist": get_30th_pct_dist,
-    "pct_40_dist": get_40th_pct_dist,
-    "pct_50_dist": get_50th_pct_dist,
-    "pct_75_dist": get_75th_pct_dist,
-    "pct_80_dist": get_80th_pct_dist,
-    "pct_90_dist": get_90th_pct_dist,
+    "pct_05_dist": partial(get_percentile_dist, percentile=5),
+    "pct_10_dist": partial(get_percentile_dist, percentile=10),
+    "pct_20_dist": partial(get_percentile_dist, percentile=20),
+    "pct_25_dist": partial(get_percentile_dist, percentile=25),
+    "pct_30_dist": partial(get_percentile_dist, percentile=30),
+    "pct_40_dist": partial(get_percentile_dist, percentile=40),
+    "pct_50_dist": partial(get_percentile_dist, percentile=50),
+    "pct_75_dist": partial(get_percentile_dist, percentile=75),
+    "pct_80_dist": partial(get_percentile_dist, percentile=80),
+    "pct_90_dist": partial(get_percentile_dist, percentile=90),
+    "pct_90_dist_modeled_wf": partial(get_percentile_dist_modeled_wf, percentile=90),
+    "pct_75_dist_modeled_wf": partial(get_percentile_dist_modeled_wf, percentile=75),
+    "pct_50_dist_modeled_wf": partial(get_percentile_dist_modeled_wf, percentile=50),
+    "pct_40_dist_modeled_wf": partial(get_percentile_dist_modeled_wf, percentile=40),
     "wf_max_e_dist": get_wf_max_e_dist,
     "start_of_ground_peak_dist": get_start_of_ground_peak_dist,
     "leading_edge_dist": get_leading_edge_dist,
     "trailing_edge_dist": get_trailing_edge_dist,
-    "pct_10_of_sig_beg_and_adj_ground_dist": get_pct_10_of_sig_beg_and_adj_ground_dist,
-    "pct_80_of_sig_beg_and_adj_ground_dist": get_pct_80_of_sig_beg_and_adj_ground_dist,
-    "pct_90_of_sig_beg_and_adj_ground_dist": get_pct_90_of_sig_beg_and_adj_ground_dist,
+    "pct_10_of_sig_beg_and_adj_ground_dist": partial(
+        get_percentile_of_sig_beg_and_adj_ground_dist, percentile=10
+    ),
+    "pct_80_of_sig_beg_and_adj_ground_dist": partial(
+        get_percentile_of_sig_beg_and_adj_ground_dist, percentile=80
+    ),
+    "pct_90_of_sig_beg_and_adj_ground_dist": partial(
+        get_percentile_of_sig_beg_and_adj_ground_dist, percentile=90
+    ),
     "bottom_of_canopy_dist": get_bottom_of_canopy_dist,
-    "pct_05_canopy_dist": get_pct_05_canopy_dist,
-    "pct_10_canopy_dist": get_pct_10_canopy_dist,
-    "pct_20_canopy_dist": get_pct_20_canopy_dist,
-    "pct_30_canopy_dist": get_pct_30_canopy_dist,
-    "pct_50_canopy_dist": get_pct_50_canopy_dist,
-    "pct_75_canopy_dist": get_pct_75_canopy_dist,
-    "pct_80_canopy_dist": get_pct_80_canopy_dist,
+    "pct_05_canopy_dist": partial(get_percentile_canopy_dist, percentile=5),
+    "pct_10_canopy_dist": partial(get_percentile_canopy_dist, percentile=10),
+    "pct_20_canopy_dist": partial(get_percentile_canopy_dist, percentile=20),
+    "pct_30_canopy_dist": partial(get_percentile_canopy_dist, percentile=30),
+    "pct_50_canopy_dist": partial(get_percentile_canopy_dist, percentile=50),
+    "pct_75_canopy_dist": partial(get_percentile_canopy_dist, percentile=75),
+    "pct_80_canopy_dist": partial(get_percentile_canopy_dist, percentile=80),
 }
 
 
@@ -987,7 +943,6 @@ def get_height_metric_value(ds, metric, recalc=False):
 
 def get_all_height_metrics(ds, metrics, recalc=False):
     for metric in metrics:
-        # print(metric)
         ds = get_height_metric_value(ds, metric, recalc=recalc)
 
     return ds
@@ -1012,7 +967,7 @@ HEIGHT_METRICS_MAP = {
     "ht_adjusted": first_peak_to_adj_ground_ht,
     "QMCH": quadratic_mean_to_ground_ht,
     "MeanH": mean_to_ground_ht,
-    "HOME_Baccini": pct_50_to_sig_end_ht,
+    "HOME_Baccini": pct_50_from_sig_beg_to_sig_end_ht,
     "HOME_Yavasli": centroid_to_adj_ground_ht,
     "pct_HOME_Yavasli": ratio_centroid_to_max_ht,
     "h25_Neigh": pct_25_to_adj_ground_ht,
@@ -1046,6 +1001,9 @@ HEIGHT_METRICS_MAP = {
     "acq3_Neigh": acq3_Neigh,
     "acq2_Nelson": acq2_Nelson,
     "acq3_Nelson": acq3_Nelson,
+    "wf_extent": sig_beg_to_sig_end_ht,
+    "leading_edge_extent": get_leading_edge_extent,
+    "trailing_edge_extent": get_trailing_edge_extent,
     # "wf_max_e": highest_energy_value,
     # "wf_variance": wf_variance,
     # "wf_skew": wf_skew,

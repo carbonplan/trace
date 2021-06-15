@@ -23,14 +23,16 @@ def calculate_derived_variables(data, tiles):
         * SPEED_OF_LIGHT
     ) / 2
 
-    data["gaussian_fit_dist"] = ht.get_gaussian_fit_dist(data)
-    data["sig_begin_dist"] = ht.get_sig_begin_dist(data)
-    data["sig_end_dist"] = ht.get_sig_end_dist(data)
-    data["ground_peak_dist"] = ht.get_ground_peak_dist(data)
+    metrics = [
+        "gaussian_fit_dist",
+        "sig_begin_dist",
+        "sig_end_dist",
+        "ground_peak_dist",
+    ]
+    for metric in metrics:
+        data = ht.get_dist_metric_value(data, metric)
 
-    data["wf_extent"] = ht.sig_beg_to_sig_end_ht(data).clip(min=0)
-    data["leading_edge_extent"] = ht.get_leading_edge_extent(data).clip(min=0)
-    data["trailing_edge_extent"] = ht.get_trailing_edge_extent(data).clip(min=0)
+    data = ht.get_height_metric_value(ds=data, metric="wf_extent", recalc=True)
 
     data['glas_elev'] = data.elevation + data.elevation_correction
 
@@ -42,7 +44,6 @@ def calculate_derived_variables(data, tiles):
         srtm_elev = np.nan
 
     data['srtm_elev'] = srtm_elev + data.delta_ellipse + data.geoid
-    # print(f'fraction srtm null = {data.srtm_elev.isnull().mean().values}')
     del srtm
 
     return data
@@ -53,29 +54,6 @@ def process_coordinates(ds):
     Process lat/lon to get xy from Landsat images, process time from "seconds since 2000/1/1" to unix/epoch timestamp
     All inputs are xr dataarrays
     """
-    # these funcstions are incorrect since the "get transformer" function does not take in the UTM zones
-    # ds['x'] = xr.apply_ufunc(
-    #     utils.get_x_from_latlon,
-    #     ds.lat,
-    #     ds.lon,
-    #     utils.get_transformer(),
-    #     vectorize=True,
-    #     dask='parallelized',
-    #     dask_gufunc_kwargs={'allow_rechunk': 1},
-    #     output_dtypes=np.float64,
-    # )
-
-    # ds['y'] = xr.apply_ufunc(
-    #     utils.get_y_from_latlon,
-    #     ds.lat,
-    #     ds.lon,
-    #     utils.get_transformer(),
-    #     vectorize=True,
-    #     dask='parallelized',
-    #     dask_gufunc_kwargs={'allow_rechunk': 1},
-    #     output_dtypes=np.float64,
-    # )
-
     # original time format is seconds elapsed since Jan 1 2000 12:00:00 UTC
     d0 = datetime(2000, 1, 1, 12, 0, 0, tzinfo=timezone.utc).timestamp()
     ds['time'] = ds.time + d0
@@ -94,10 +72,8 @@ def get_mask(ds):
     True in mask = records to use
     """
     # all non nulls in the GLAH14 dataset
-    mask = ~ds.lat.isnull()  # .load()
+    mask = ds.lat.notnull()
     mask.name = 'mask'
-    # m1 = 100.0 - mask.mean().values * 100.0
-    # print(f'filtering out {m1}% of records due to null GLAH14 data')
 
     # Harris et al 2021 filtering conditions listed in Supplementary Information
     mask = (
@@ -108,21 +84,40 @@ def get_mask(ds):
         # discrepancy bt SRTM and GLAS derived elevation less than 30m
         & (abs(ds.srtm_elev.fillna(ds.glas_elev) - ds.glas_elev) <= 30)
         # signal beginning is less than 70m (otherwise indicates potential inference of signal)
-        & (abs(ds.ground_peak_dist - ds.sig_begin_dist) <= 70)
+        & (abs(ds.sig_begin_offset) <= 70)
         # signal end is less than 20 and greater than 1m (otherwise indicates sig end is improperly captured)
-        & (abs(ds.ground_peak_dist - ds.sig_end_dist) <= 20)
-        & (abs(ds.ground_peak_dist - ds.sig_end_dist) >= 1)
-        # leading edge <= 50% of wf extent, otherwise indicates large distances in canopy height
-        & (ds.leading_edge_extent <= (ds.wf_extent * 0.5))
+        & (abs(ds.sig_end_offset) <= 20)
+        & (abs(ds.sig_end_offset) >= 1)
+    )
+
+    return mask
+
+
+def filter_large_leading_and_trailing_edge_extent(ds):
+    metrics = [
+        "leading_edge_extent",
+        "trailing_edge_extent",
+    ]
+    ds = ht.get_all_height_metrics(
+        ds=ds,
+        metrics=metrics,
+    )
+    assert (ds.leading_edge_extent >= 0).all()
+    assert (ds.trailing_edge_extent >= 0).all()
+
+    mask = (
+        # leading edge <= 50% of wf extent, otherwise indicates large differences in canopy height
+        (ds.leading_edge_extent <= (ds.wf_extent * 0.5))
         # trailing edge <= 35% of wf extent, otherwise indicates impacts from high slope
         & (ds.trailing_edge_extent <= (ds.wf_extent * 0.35))
     )
-
-    mask = mask  # .load()
-    # m2 = 100.0 - mask.mean().values * 100.0
-    # print(f'filtering out {m2-m1}% of records due to additional filtering by Harris et al')
-
-    return mask
+    total = ds.dims['unique_index']
+    ds = ds.where(mask, drop=True)
+    remained = ds.dims['unique_index']
+    print(
+        f'after edge extent filtering, {remained} valid shots remained out of {total} ({100 - round(remained/total*100, 2)}%) filtered'
+    )
+    return ds
 
 
 def gaussian(x, amplitude, mean, stddev):
@@ -174,10 +169,40 @@ def select_valid_area(bins, wf, signal_begin_dist, signal_end_dist):
     return wf
 
 
-def preprocess_wf(ds):
+def get_modeled_waveform(ds):
     """
-    Smooth and de-noise received waveform, input is an xarray dataset with rec_wf, tx_wf, and noise_mean as dataarrays.
-    Output is a dataarray containing the processed received waveform
+    Sum up the gaussian peaks in GLAH14
+    """
+    # we have gaussian_fit_dist in meters, gaussian_amp in volts
+    # gaussian sigma is in nanoseconds, switch to meters and divide by 2 to get 1 side stdev
+    gaussian_sigma_in_m = (ds.gaussian_sigma * SECONDS_IN_NANOSECONDS * SPEED_OF_LIGHT) / 2
+    modeled_wf = gaussian(
+        x=ds.rec_wf_sample_dist,
+        amplitude=ds.gaussian_amp,
+        mean=ds.gaussian_fit_dist,
+        stddev=gaussian_sigma_in_m,
+    ).sum(dim='n_gaussian_peaks')
+
+    # denoise
+    modeled_wf = modeled_wf - ds.noise_mean
+
+    # set the energy outside of signal begin/end to 0
+    modeled_wf = select_valid_area(
+        bins=ds.rec_wf_sample_dist,
+        wf=modeled_wf,
+        signal_begin_dist=ds.sig_begin_dist,
+        signal_end_dist=ds.sig_end_dist,
+    )
+
+    dims = ds.rec_wf.dims
+    modeled_wf = modeled_wf.transpose(dims[0], dims[1])
+
+    return modeled_wf
+
+
+def get_smoothed_actual_waveform(ds):
+    """
+    Smooth and de-noise actual waveform from GLAH01
     """
     # apply gaussian filter to smooth
     processed_wf = xr.apply_ufunc(
@@ -221,17 +246,21 @@ def preprocess(ds, min_lat, max_lat, min_lon, max_lon):
     ds = ds.stack(unique_index=("record_index", "shot_number"))
 
     # apply filtering
-    ds["mask"] = get_mask(ds)
-    # total = ds.noise_mean.fillna(0).count().values
-    ds = ds.where(ds.mask, drop=True)
-    # remained = ds.noise_mean.fillna(0).count().values
-    # print(
-    #     f'after filtering, {remained} valid shots remained out of {total} ({100 - round(remained/total*100, 2)}%) filtered'
-    # )
+    mask = get_mask(ds)
+    total = ds.dims['unique_index']
+    ds = ds.where(mask, drop=True)
+    remained = ds.dims['unique_index']
+    print(
+        f'after initial filtering, {remained} valid shots remained out of {total} ({100 - round(remained/total*100, 2)}%) filtered'
+    )
 
     # smooth and denoise waveform
     # print('before smoothing: current time is ', time.strftime("%H:%M:%S", time.localtime()))
-    ds["processed_wf"] = preprocess_wf(ds)
+    ds["processed_wf"] = get_smoothed_actual_waveform(ds)
+    ds["modeled_wf"] = get_modeled_waveform(ds)
+    # leading and trailing edge extent calculations require processed wf (which is time consuming to calculate)
+    # thus, filtering is broken into two parts
+    ds = filter_large_leading_and_trailing_edge_extent(ds)
 
     # preprocess the coordinate variables
     # print('before coordinates: current time is ', time.strftime("%H:%M:%S", time.localtime()))
