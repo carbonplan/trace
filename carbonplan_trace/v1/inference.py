@@ -122,7 +122,7 @@ def convert_to_lat_lon(df, utm_zone_number, utm_zone_letter):
     return utm.to_latlon(df['x'], df['y'], int(utm_zone_number), utm_zone_letter)
 
 
-def load_xgb_model(model_path, fs, local_folder='./'):
+def load_xgb_model(model_path, fs):
     cwd = os.getcwd()
     if model_path.startswith('s3'):
         model_name = model_path.split('/')[-1]

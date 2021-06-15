@@ -102,6 +102,8 @@ def grab_ds(item, bands_of_interest, cog_mask, utm_zone, utm_letter):
     ds = ds.assign_coords({'band': bands_of_interest})
     ds = ds.where(ds != 0)
     ds = ds.where(cog_mask < 2)
+    # scale the reflectance values according to recommendations from USGS
+    # https://www.usgs.gov/core-science-systems/nli/landsat/landsat-collection-2-level-2-science-products
     ds = ds.reflectance.to_dataset(dim='band') * 0.0000275 - 0.2
     ds.attrs["utm_zone_number"] = utm_zone
     ds.attrs["utm_zone_letter"] = utm_letter
