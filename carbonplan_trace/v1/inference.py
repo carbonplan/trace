@@ -3,12 +3,17 @@ import gc
 import dask
 import fsspec
 import numpy as np
-import rioxarray as rio
+import rasterio as rio
+import rioxarray
 import utm
 import xarray as xr
 import xgboost as xgb
 from pyproj import CRS
 from s3fs import S3FileSystem
+import os
+import boto3
+from rasterio.session import AWSSession
+
 
 from carbonplan_trace.v1.landsat_preprocess import scene_seasonal_average
 from carbonplan_trace.v1.model import features
@@ -118,14 +123,17 @@ def convert_to_lat_lon(df, utm_zone_number, utm_zone_letter):
     return utm.to_latlon(df['x'], df['y'], int(utm_zone_number), utm_zone_letter)
 
 
-def load_xgb_model(model_path, local_folder='./'):
+def load_xgb_model(model_path, fs, local_folder='./'):
+    cwd = os.getcwd()
     if model_path.startswith('s3'):
-        fs = fsspec.get_filesystem_class('s3')()
         model_name = model_path.split('/')[-1]
-        fs.get(model_path, local_folder + model_name)
-        model_path = local_folder + model_name
+        new_model_path = ('/').join([cwd, model_name])
+        fs.get(model_path, new_model_path)
+        model_path = new_model_path
+
     model = xgb.XGBRegressor()
     model.load_model(model_path)
+    
     return model
 
 
@@ -160,24 +168,23 @@ def predict(
     bands_of_interest='all',
     season='JJA',
 ):
-
+    core_session = boto3.Session(
+                    aws_access_key_id=access_key_id,
+                    aws_secret_access_key=secret_access_key,
+                    region_name='us-west-2',
+                )
+    aws_session = AWSSession(core_session,
+                requester_pays=True,
+    fs = S3FileSystem(
+                key=access_key_id, secret=secret_access_key, requester_pays=True
+            )
     with dask.config.set(
         scheduler='single-threaded'
     ):  # this? **** #threads #single-threaded # threads??
         with rio.Env(aws_session):
-            aws_session = AWSSession(
-                boto3.Session(
-                    aws_access_key_id=access_key_id,
-                    aws_secret_access_key=secret_access_key,
-                    region_name='us-west-2',
-                ),
-                requester_pays=True,
-            )  # profile_name='default'), requester_pays=True)
-            fs = S3FileSystem(
-                key=access_key_id, secret=secret_access_key, region='us-west-2', requester_pays=True
-            )
+            
 
-            model = load_xgb_model(model_path)
+            model = load_xgb_model(model_path, fs)
             # create the landsat scene for that year
             landsat_ds = scene_seasonal_average(
                 path,
@@ -186,6 +193,7 @@ def predict(
                 access_key_id,
                 secret_access_key,
                 aws_session,
+                core_session,
                 fs,
                 write_bucket=None,  #'s3://carbonplan-climatetrace/v1/',
                 bands_of_interest='all',
@@ -202,7 +210,6 @@ def predict(
             del data
             if input_write_bucket is not None:
                 utils.write_parquet(df, input_write_bucket, access_key_id, secret_access_key)
-                # df = pd.read_parquet(input_write_bucket)
             prediction = make_inference(df, model, features)
             del df
             if output_write_bucket is not None:
