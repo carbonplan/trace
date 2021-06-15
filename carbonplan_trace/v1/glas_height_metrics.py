@@ -279,20 +279,20 @@ def pct_80_canopy_ht(ds):
 
 def get_leading_edge_extent(ds):
     """
-    the difference between the signal beginning and the H90
+    the difference between the signal beginning (closest point to satellite that crossed noise threshold) and the H90
+    (the height at which 90% of energy was reached from signal end to signal beginning, H90 is closer to satellite compared
+    to H10)
     """
-    return get_heights_from_distance(
-        ds, top_metric='sig_begin_dist', bottom_metric='pct_90_dist'
-    ).clip(min=0)
+    return get_heights_from_distance(ds, top_metric='sig_begin_dist', bottom_metric='pct_90_dist')
 
 
 def get_trailing_edge_extent(ds):
     """
-    the difference between signal end and H10
+    the difference between the signal end (furtherst point to satellite that crossed noise threshold) and the H10
+    (the height at which 10% of energy was reached from signal end to signal beginning, H90 is closer to satellite compared
+    to H10)
     """
-    return get_heights_from_distance(
-        ds, top_metric='pct_10_dist', bottom_metric='sig_end_dist'
-    ).clip(min=0)
+    return get_heights_from_distance(ds, top_metric='pct_10_dist', bottom_metric='sig_end_dist')
 
 
 def get_sig_begin_dist(ds):

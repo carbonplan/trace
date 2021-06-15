@@ -102,6 +102,9 @@ def filter_large_leading_and_trailing_edge_extent(ds):
         ds=ds,
         metrics=metrics,
     )
+    assert (ds.leading_edge_extent >= 0).all()
+    assert (ds.trailing_edge_extent >= 0).all()
+
     mask = (
         # leading edge <= 50% of wf extent, otherwise indicates large differences in canopy height
         (ds.leading_edge_extent <= (ds.wf_extent * 0.5))
