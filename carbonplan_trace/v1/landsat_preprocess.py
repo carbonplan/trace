@@ -102,7 +102,9 @@ def grab_ds(item, bands_of_interest, cog_mask, utm_zone, utm_letter):
     ds = ds.assign_coords({'band': bands_of_interest})
     ds = ds.where(ds != 0)
     ds = ds.where(cog_mask < 2)
-    ds = ds.reflectance.to_dataset(dim='band')
+    # scale the reflectance values according to recommendations from USGS
+    # https://www.usgs.gov/core-science-systems/nli/landsat/landsat-collection-2-level-2-science-products
+    ds = ds.reflectance.to_dataset(dim='band') * 0.0000275 - 0.2
     ds.attrs["utm_zone_number"] = utm_zone
     ds.attrs["utm_zone_letter"] = utm_letter
     ds = calc_NDVI(ds)
@@ -227,7 +229,7 @@ def grab_scene_coord_info(metadata):
     return lats, upper_right_corner_proj, upper_right_corner_coords
 
 
-def get_scene_utm_info(url):
+def get_scene_utm_info(url, json_client):
 
     '''
     Get the USGS-provided UTM zone and letter for the specific landsat scene
@@ -245,7 +247,6 @@ def get_scene_utm_info(url):
     '''
 
     metadata_url = url + '_MTL.json'
-    json_client = boto3.client('s3')
     data = json_client.get_object(
         Bucket='usgs-landsat', Key=metadata_url[18:], RequestPayer='requester'
     )
@@ -312,7 +313,6 @@ def calc_NDII(ds):
     nir = ds['SR_B4']
     swir = ds['SR_B5']
     ds['NDII'] = (nir - swir) / (nir + swir)
-    # ds['NDII'] = (ds['NDII']*1000).astype('int16')
 
     return ds
 
@@ -324,6 +324,7 @@ def scene_seasonal_average(
     access_key_id,
     secret_access_key,
     aws_session,
+    core_session,
     fs,
     write_bucket=None,
     bands_of_interest='all',
@@ -334,25 +335,9 @@ def scene_seasonal_average(
     mask each according to its time-specific cloud QA and then
     return average across all masked scenes
     '''
-    # aws_session = AWSSession(
-    #     boto3.Session(
-    #         aws_access_key_id=access_key_id,
-    #         aws_secret_access_key=secret_access_key,
-    #         region_name='us-west-2',
-    #     ),
-    #     requester_pays=True,
-    # )
-    # fs = S3FileSystem(
-    #     key=access_key_id, secret=secret_access_key, requester_pays=True, region='us-west-2'
-    # )
-
-    # with dask.config.set(
-    #     scheduler='single-threaded'
-    # ):  # this? **** #threads #single-threaded # threads??
-    #     with rio.Env(aws_session):
-    test_credentials(aws_session)
+    test_credentials(core_session)
     # all of this is just to get the right formatting stuff to access the scenes
-
+    test_client = core_session.client('s3')
     landsat_bucket = 's3://usgs-landsat/collection02/level-2/standard/tm/{}/{:03d}/{:03d}/'
     month_keys = {'JJA': ['06', '07', '08']}
     valid_files, ds_list = [], []
@@ -365,11 +350,10 @@ def scene_seasonal_average(
         for summer_datestamp in summer_datestamps:
             if summer_datestamp in scene_store:
                 valid_files.append(scene_store)
-    # ds_list = None
     for file in valid_files:
         scene_id = file[-40:]
         url = 's3://{}/{}'.format(file, scene_id)
-        utm_zone, utm_letter = get_scene_utm_info(url)
+        utm_zone, utm_letter = get_scene_utm_info(url, test_client)
         cloud_mask_url = url + '_SR_CLOUD_QA.TIF'
         cog_mask = cloud_qa(cloud_mask_url)
         ds_list.append(grab_ds(url, bands_of_interest, cog_mask, utm_zone, utm_letter))
