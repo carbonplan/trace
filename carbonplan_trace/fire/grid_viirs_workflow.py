@@ -107,9 +107,7 @@ def process_one_year(year):
         print(tile_id)
 
         # output mappers
-        uri = out_template.format(
-            resolution=resolution * COARSENING_FACTOR, tile_id=tile_id, year=year
-        )
+        uri = out_template.format(resolution=resolution, tile_id=tile_id, year=year)
         mapper = fsspec.get_mapper(uri)
 
         coarse_uri = out_template.format(
@@ -158,4 +156,4 @@ def process_one_year(year):
 
 if __name__ == "__main__":
     for year in range(2020, 2011, -1):
-        process_one_year(2020)
+        process_one_year(year)

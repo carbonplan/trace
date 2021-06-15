@@ -1,4 +1,5 @@
 import xarray as xr
+from tenacity import retry
 
 from . import cat
 
@@ -32,6 +33,7 @@ def _preprocess(da, lat=None, lon=None):
     return da
 
 
+@retry
 def open_hansen_change_tile(lat, lon):
     """
     Open single tile from the Hansen 2020 dataset and then

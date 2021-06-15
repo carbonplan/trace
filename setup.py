@@ -29,6 +29,6 @@ setup(
     tests_require=["pytest"],
     license="MIT",
     keywords="carbon, data, climate, climatetrace",
-    use_scm_version={"version_scheme": "post-release", "local_scheme": "dirty-tag"},
+    use_scm_version={"version_scheme": "post-release"},
     setup_requires=["setuptools_scm", "setuptools>=30.3.0"],
 )
