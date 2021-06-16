@@ -34,17 +34,6 @@ def sig_beg_to_adj_ground_ht(ds):
     )
 
 
-def first_peak_to_adj_ground_ht(ds):
-    """
-    Vertical distance, in meters, between the height of the ground peak and the height of the first peak
-    (i.e., the peak closest to the satellite). Ground peak defined as whichever of the two lowest peaks
-    has greater amplitude.
-    """
-    return get_heights_from_distance(
-        ds, top_metric='first_peak_dist', bottom_metric='adj_ground_peak_dist'
-    )
-
-
 def quadratic_mean_to_adj_ground_peak_actual_wf_ht(ds):
     """
     Quadratic mean distance of the waveform from ground peak to signal beginning (meters).
@@ -474,35 +463,51 @@ def get_adj_ground_peak_dist_actual_wf(ds):
     # (Forest vertical structure from GLAS: An evaluation using LVIS and SRTM data)
     # the buffer in Sun et al is the "half width of the transmitted laser pulse", using 2 bins here as an approximation
     # TODO: switch to the more rigorous approach
-    pass
-    # sig_end_buffer = 2
+    sig_end_buffer = 2
 
-    # wf = ds.processed_wf
+    wf = ds.processed_wf
 
-    # # initialize an array of ground peak distance with the shape of record index x shot number
-    # ground_distance = xr.DataArray(
-    #     0,
-    #     dims=["record_index", "shot_number"],
-    #     coords=[wf.coords["record_index"], wf.coords["shot_number"]],
-    # )
+    # we need 1 array for each: 1) lowest peak loc, 2) lowest peak amp, 3) final result
+    data = {}
+    for key in ['lowest_peak_loc', 'lowest_peak_amp', 'result']:
+        data[key] = xr.DataArray(
+            0,
+            dims=["unique_index"],
+            coords=[wf.coords["unique_index"]],
+        )
 
-    # for i in np.arange(sig_end_buffer, wf.rec_bin.shape[0] - 1):
-    #     mask = (
-    #         # where the current bin has waveform intensity larger then the previous bin and the next bin
-    #         (wf.isel(rec_bin=i) > wf.isel(rec_bin=i - 1))
-    #         & (wf.isel(rec_bin=i) > wf.isel(rec_bin=i + 1))
-    #         & (ground_distance == 0)  # and this is the first peak found
-    #     )
+    # searching from signal end to signal beginning for peaks
+    # store in appropriate arrays depending on whether we've already found a peak and which one has greater amplitude
+    for i in np.arange(sig_end_buffer, wf.rec_bin.shape[0] - 1):
+        second_peak_mask = (
+            # where the current bin has waveform intensity larger then the previous bin and the next bin
+            (wf.isel(rec_bin=i) > wf.isel(rec_bin=i - 1))
+            & (wf.isel(rec_bin=i) > wf.isel(rec_bin=i + 1))
+            & (data['lowest_peak_loc'] > 0)  # and this is not first peak found
+            & (data['result'] == 0)  # and we haven't recorded the final output
+        )
 
-    #     # where mask = True, set the ground distance to be equal to distance of current bin i
-    #     # otherwise continue to use the data stored in ground distance
-    #     ground_distance = xr.where(mask, x=all_distances.isel(rec_bin=i), y=ground_distance)
+        # where current amp is larger than the lowest peak amp recorded, record the current location as final result
+        # else record the lowest peak location as the final result
+        greatest_amp_mask = wf.isel(rec_bin=i) >= data['lowest_peak_amp']
+        data['result'] = xr.where(second_peak_mask & greatest_amp_mask, x=i, y=data['result'])
+        data['result'] = xr.where(
+            second_peak_mask & ~greatest_amp_mask, x=data['lowest_peak_loc'], y=data['result']
+        )
 
-    # # set the 0s (records where we didn't find a peak) in distance to the max distance (bin 0)
-    # mask = ground_distance == 0
-    # ground_distance = xr.where(mask, all_distances.isel(rec_bin=0), ground_distance)
+        # store if this is the lowest peak
+        lowest_peak_mask = (
+            # where the current bin has waveform intensity larger then the previous bin and the next bin
+            (wf.isel(rec_bin=i) > wf.isel(rec_bin=i - 1))
+            & (wf.isel(rec_bin=i) > wf.isel(rec_bin=i + 1))
+            & (data['lowest_peak_loc'] == 0)  # and this is the first peak found
+        )
+        data['lowest_peak_loc'] = xr.where(lowest_peak_mask, x=i, y=data['lowest_peak_loc'])
+        data['lowest_peak_amp'] = xr.where(
+            lowest_peak_mask, x=wf.isel(rec_bin=i), y=data['lowest_peak_amp']
+        )
 
-    # return ground_distance
+    return ds.rec_wf_sample_dist.isel(rec_bin=data['result'])
 
 
 def get_bottom_of_canopy_dist(ds):
@@ -975,7 +980,7 @@ HEIGHT_METRICS_MAP = {
     "H60_Baccini": pct_60_from_sig_beg_to_sig_end_ht,
     "CANOPY_DEP": sig_beg_to_start_of_ground_peak_ht,
     "CANOPY_ENE": proportion_sig_beg_to_start_of_ground,
-    "ht_adjusted": first_peak_to_adj_ground_ht,
+    "ht_adjusted": sig_beg_to_adj_ground_ht,
     "QMCH": quadratic_mean_to_adj_ground_peak_actual_wf_ht,
     "MeanH": mean_to_adj_ground_peak_actual_wf_ht,
     "HOME_Baccini": pct_50_from_sig_beg_to_sig_end_ht,
