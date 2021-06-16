@@ -8,7 +8,7 @@ from ..v1 import utils
 
 # flake8: noqa
 
-fs = S3FileSystem(profile='default', requester_pays=True)
+fs = S3FileSystem(requester_pays=True)
 WORLDCLIM_SCALING_FACTORS = {
     'BIO01': 100,
     'BIO02': 100,
@@ -37,14 +37,17 @@ def aster(ds, tiles, lat_lon_box=None, dtype='int16'):
     Note: ds must have coordinates as lat/lon and not x/y (have different names)
     otherwise the coordinates will not be turned into
     '''
+    print('load aster')
     full_aster = utils.open_and_combine_lat_lon_data(
         "gs://carbonplan-climatetrace/intermediates/aster/", tiles=tiles, lat_lon_box=lat_lon_box
     )
+    print('add reprojected aster')
     selected_aster = (
         utils.find_matching_records(full_aster, lats=ds.y, lons=ds.x, dtype=dtype)
         .load()
         .drop(['spatial_ref'])
     )
+    print('merging aster')
     return xr.merge([ds, selected_aster])
 
 
@@ -52,18 +55,21 @@ def worldclim(ds, dtype='int16'):
     mapper = fsspec.get_mapper(
         's3://carbonplan-climatetrace/v1/data/intermediates/annual_averaged_worldclim.zarr'
     )
-    worldclim_ds = xr.open_zarr(mapper, consolidated=True)
+    print('loading worldlcim')
+    worldclim_ds = xr.open_zarr(mapper, consolidated=True).astype(dtype)
+    print('subsetting')
     worldclim_subset = worldclim_ds.sel(
         lon=slice(float(ds.x.min().values), float(ds.x.max().values)),
         lat=slice(float(ds.y.max().values), float(ds.y.min().values)),
     ).load()
-
+    print('scaling')
     for var in WORLDCLIM_SCALING_FACTORS.keys():
         worldclim_subset[var] = worldclim_subset[var] * WORLDCLIM_SCALING_FACTORS[var]
-
+    print('reproejcting')
     worldclim_reprojected = utils.find_matching_records(
         worldclim_subset, ds.y, ds.x, dtype=dtype
     ).load()
+    print('adding to dataset and deleting')
     all_vars = worldclim_subset.data_vars
 
     for var in all_vars:
@@ -73,10 +79,13 @@ def worldclim(ds, dtype='int16'):
 
 
 def igbp(data, tiles, year, lat_lon_box=None, dtype='int8'):
+    print('loading igbp')
     igbp = utils.open_igbp_data(tiles, lat_lon_box=lat_lon_box)
+    print('reproject igbp')
     igbp_records = utils.find_matching_records(
         data=igbp, lats=data.y, lons=data.x, years=year, dtype=dtype
     )
+    print('add igbp')
     data['burned'] = igbp_records.igbp.drop(['spatial_ref'])
 
     del igbp

@@ -1,20 +1,27 @@
+import gc
+import os
+
+import boto3
 import dask
 import fsspec
 import numpy as np
-import rioxarray as rio
+import rasterio as rio
+import rioxarray
 import utm
 import xarray as xr
 import xgboost as xgb
 from pyproj import CRS
+from rasterio.session import AWSSession
 from s3fs import S3FileSystem
 
+from carbonplan_trace.v1.landsat_preprocess import scene_seasonal_average
 from carbonplan_trace.v1.model import features
 
 from ..v1 import load, utils
 
 # flake8: noqa
 
-fs = S3FileSystem(profile='default', requester_pays=True)
+fs = S3FileSystem(requester_pays=True)
 
 
 def write_crs_dataset(ds, zone=None, overwrite=False):
@@ -80,6 +87,7 @@ def dataset_to_tabular(ds):
 
     '''
     df = ds.to_dataframe()
+    del ds
     # drop any nan values so we only carry around pixels we have landsat for
     # this will drop both the parts of the dataset that are empty because
     # the landsat scenes might be rotated w.r.t. the x/y grid
@@ -114,14 +122,17 @@ def convert_to_lat_lon(df, utm_zone_number, utm_zone_letter):
     return utm.to_latlon(df['x'], df['y'], int(utm_zone_number), utm_zone_letter)
 
 
-def load_xgb_model(model_path, local_folder='./'):
+def load_xgb_model(model_path, fs):
+    cwd = os.getcwd()
     if model_path.startswith('s3'):
-        fs = fsspec.get_filesystem_class('s3')()
         model_name = model_path.split('/')[-1]
-        fs.get(model_path, local_folder + model_name)
-        model_path = local_folder + model_name
+        new_model_path = ('/').join([cwd, model_name])
+        fs.get(model_path, new_model_path)
+        model_path = new_model_path
+
     model = xgb.XGBRegressor()
     model.load_model(model_path)
+
     return model
 
 
@@ -137,8 +148,9 @@ def make_inference(input_data, model, features):
     """
     input_data is assumed to be a pandas dataframe, and model uses standard sklearn API with .predict
     """
-    input_data.dropna(subset=features, inplace=True)
+    input_data = input_data.dropna(subset=features)
     input_data = input_data.loc[(~(input_data.NDVI == np.inf) & ~(input_data.NDII == np.inf))]
+    gc.collect()
     input_data['biomass'] = model.predict(input_data[features])
     return input_data[['x', 'y', 'biomass']]
 
@@ -155,36 +167,53 @@ def predict(
     bands_of_interest='all',
     season='JJA',
 ):
-    model = load_xgb_model(model_path)
-    # create the landsat scene for that year
-    landsat_ds = scene_seasonal_average(
-        path,
-        row,
-        year,
-        access_key_id,
-        secret_access_key,
-        write_bucket=None,  #'s3://carbonplan-climatetrace/v1/',
-        bands_of_interest='all',
-        season=season,
+    core_session = boto3.Session(
+        aws_access_key_id=access_key_id,
+        aws_secret_access_key=secret_access_key,
+        region_name='us-west-2',
     )
-    # add in other datasets
-    landsat_zone = landsat_ds.utm_zone_number + landsat_ds.utm_zone_letter
-    data, tiles, bounding_box = reproject_dataset_to_fourthousandth_grid(
-        landsat_ds, zone=landsat_zone
-    )
-    del landsat_ds
-    data = add_all_variables(data, tiles, year, lat_lon_box=bounding_box).load()
-    df = dataset_to_tabular(data)
-    del data
-    if input_write_bucket is not None:
-        utils.write_parquet(df, input_write_bucket, access_key_id, secret_access_key)
-        # df = pd.read_parquet(input_write_bucket)
-    prediction = make_inference(df, model, features)
-    if output_write_bucket is not None:
-        utils.write_parquet(prediction, output_write_bucket, access_key_id, secret_access_key)
-        print(output_write_bucket)
-    else:
-        return prediction
+    aws_session = AWSSession(core_session, requester_pays=True)
+    fs = S3FileSystem(key=access_key_id, secret=secret_access_key, requester_pays=True)
+    with dask.config.set(
+        scheduler='single-threaded'
+    ):  # this? **** #threads #single-threaded # threads??
+        with rio.Env(aws_session):
+
+            model = load_xgb_model(model_path, fs)
+            # create the landsat scene for that year
+            landsat_ds = scene_seasonal_average(
+                path,
+                row,
+                year,
+                access_key_id,
+                secret_access_key,
+                aws_session,
+                core_session,
+                fs,
+                write_bucket=None,  #'s3://carbonplan-climatetrace/v1/',
+                bands_of_interest='all',
+                season=season,
+            )
+            # add in other datasets
+            landsat_zone = landsat_ds.utm_zone_number + landsat_ds.utm_zone_letter
+            data, tiles, bounding_box = reproject_dataset_to_fourthousandth_grid(
+                landsat_ds, zone=landsat_zone
+            )
+            del landsat_ds
+            data = add_all_variables(data, tiles, year, lat_lon_box=bounding_box).load()
+            df = dataset_to_tabular(data)
+            del data
+            if input_write_bucket is not None:
+                utils.write_parquet(df, input_write_bucket, access_key_id, secret_access_key)
+            prediction = make_inference(df, model, features)
+            del df
+            if output_write_bucket is not None:
+                utils.write_parquet(
+                    prediction, output_write_bucket, access_key_id, secret_access_key
+                )
+                print(output_write_bucket)
+            else:
+                return prediction
 
 
 predict_delayed = dask.delayed(predict)

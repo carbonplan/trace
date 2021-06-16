@@ -1,7 +1,9 @@
+import gc
 import json
 
 import boto3
 import dask
+import numpy as np
 import rasterio as rio
 import rioxarray  # for the extension to load
 import utm
@@ -98,17 +100,21 @@ def grab_ds(item, bands_of_interest, cog_mask, utm_zone, utm_letter):
     ds = xr.concat(da_list, dim='band').to_dataset(dim='band').rename({1: 'reflectance'})
     del da_list
     ds = ds.assign_coords({'band': bands_of_interest})
-    # fill value is 0; let's switch it to nan
     ds = ds.where(ds != 0)
     ds = ds.where(cog_mask < 2)
-    ds = ds.reflectance.to_dataset(dim='band')  # .drop('spatial_ref')
-    for var in ds.data_vars:
-        ds[var] = ds[var].astype('int16')
+    # scale the reflectance values according to recommendations from USGS
+    # https://www.usgs.gov/core-science-systems/nli/landsat/landsat-collection-2-level-2-science-products
+    ds = ds.reflectance.to_dataset(dim='band') * 0.0000275 - 0.2
     ds.attrs["utm_zone_number"] = utm_zone
     ds.attrs["utm_zone_letter"] = utm_letter
     ds = calc_NDVI(ds)
     ds = calc_NDII(ds)
+    gc.collect()
     return ds
+
+
+def valid_pixel_mask(ds):
+    return (~ds['SR_B1'].isnull()).astype(int).compute()
 
 
 def average_stack_of_scenes(ds_list):
@@ -139,11 +145,19 @@ def average_stack_of_scenes(ds_list):
     # TODO: this could probably be moved to a test
     assert len(set(utm_zone)) == 1
     assert len(set(utm_letter)) == 1
-
-    full_ds = xr.concat(ds_list, dim='scene').mean(dim='scene').load()
-    for var in ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7']:
-        full_ds[var] = full_ds[var].astype('int16')
-    del ds_list
+    # less memory-intensive way of averaging
+    full_ds = ds_list.pop().load()
+    valid_pixel_count = valid_pixel_mask(full_ds)
+    while ds_list:
+        ds = ds_list.pop().load()
+        full_ds += ds.compute()
+        mask = valid_pixel_mask(ds).load()
+        valid_pixel_count = (valid_pixel_count + mask).load()
+        del mask
+        del ds
+    # divide by the number of active pixels to get your seasonal average
+    full_ds = full_ds / valid_pixel_count
+    del valid_pixel_count
 
     full_ds.attrs['utm_zone_number'] = utm_zone[0]
     full_ds.attrs['utm_zone_letter'] = utm_letter[0]
@@ -215,7 +229,7 @@ def grab_scene_coord_info(metadata):
     return lats, upper_right_corner_proj, upper_right_corner_coords
 
 
-def get_scene_utm_info(url):
+def get_scene_utm_info(url, json_client):
 
     '''
     Get the USGS-provided UTM zone and letter for the specific landsat scene
@@ -233,7 +247,6 @@ def get_scene_utm_info(url):
     '''
 
     metadata_url = url + '_MTL.json'
-    json_client = boto3.client('s3')
     data = json_client.get_object(
         Bucket='usgs-landsat', Key=metadata_url[18:], RequestPayer='requester'
     )
@@ -300,6 +313,7 @@ def calc_NDII(ds):
     nir = ds['SR_B4']
     swir = ds['SR_B5']
     ds['NDII'] = (nir - swir) / (nir + swir)
+
     return ds
 
 
@@ -309,6 +323,9 @@ def scene_seasonal_average(
     year,
     access_key_id,
     secret_access_key,
+    aws_session,
+    core_session,
+    fs,
     write_bucket=None,
     bands_of_interest='all',
     season='JJA',
@@ -318,50 +335,38 @@ def scene_seasonal_average(
     mask each according to its time-specific cloud QA and then
     return average across all masked scenes
     '''
-    aws_session = AWSSession(
-        boto3.Session(aws_access_key_id=access_key_id, aws_secret_access_key=secret_access_key),
-        requester_pays=True,
-    )
-    fs = S3FileSystem(key=access_key_id, secret=secret_access_key, requester_pays=True)
+    test_credentials(core_session)
+    # all of this is just to get the right formatting stuff to access the scenes
+    test_client = core_session.client('s3')
+    landsat_bucket = 's3://usgs-landsat/collection02/level-2/standard/tm/{}/{:03d}/{:03d}/'
+    month_keys = {'JJA': ['06', '07', '08']}
+    valid_files, ds_list = [], []
 
-    with dask.config.set(
-        scheduler='single-threaded'
-    ):  # this? **** #threads #single-threaded # threads??
-        with rio.Env(aws_session):
-            test_credentials(aws_session)
-            # all of this is just to get the right formatting stuff to access the scenes
-
-            landsat_bucket = 's3://usgs-landsat/collection02/level-2/standard/tm/{}/{:03d}/{:03d}/'
-            month_keys = {'JJA': ['06', '07', '08']}
-            valid_files, ds_list = [], []
-
-            if bands_of_interest == 'all':
-                bands_of_interest = ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7']
-            scene_stores = fs.ls(landsat_bucket.format(year, path, row))
-            summer_datestamps = ['{}{}'.format(year, month) for month in month_keys[season]]
-            for scene_store in scene_stores:
-                for summer_datestamp in summer_datestamps:
-                    if summer_datestamp in scene_store:
-                        valid_files.append(scene_store)
-            for file in valid_files:
-                scene_id = file[-40:]
-                url = 's3://{}/{}'.format(file, scene_id)
-                utm_zone, utm_letter = get_scene_utm_info(url)
-                cloud_mask_url = url + '_SR_CLOUD_QA.TIF'
-                cog_mask = cloud_qa(cloud_mask_url)
-                ds_list.append(grab_ds(url, bands_of_interest, cog_mask, utm_zone, utm_letter))
-            seasonal_average = average_stack_of_scenes(ds_list)
-            print(seasonal_average.nbytes)
-            print(seasonal_average)
-            del ds_list
-            if write_bucket is not None:
-                # set where you'll save the final seasonal average
-                url = f'{write_bucket}{path}/{row}/{year}/{season}_reflectance.zarr'
-                mapper = fs.get_mapper(url)
-                write_out(seasonal_average.chunk({'x': 1024, 'y': 1024}), mapper)
-                return seasonal_average.chunk({'x': 1024, 'y': 1024}).load()
-            else:
-                return seasonal_average.chunk({'x': 1024, 'y': 1024}).load()
+    if bands_of_interest == 'all':
+        bands_of_interest = ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7']
+    scene_stores = fs.ls(landsat_bucket.format(year, path, row))
+    summer_datestamps = ['{}{}'.format(year, month) for month in month_keys[season]]
+    for scene_store in scene_stores:
+        for summer_datestamp in summer_datestamps:
+            if summer_datestamp in scene_store:
+                valid_files.append(scene_store)
+    for file in valid_files:
+        scene_id = file[-40:]
+        url = 's3://{}/{}'.format(file, scene_id)
+        utm_zone, utm_letter = get_scene_utm_info(url, test_client)
+        cloud_mask_url = url + '_SR_CLOUD_QA.TIF'
+        cog_mask = cloud_qa(cloud_mask_url)
+        ds_list.append(grab_ds(url, bands_of_interest, cog_mask, utm_zone, utm_letter))
+    seasonal_average = average_stack_of_scenes(ds_list)
+    del ds_list
+    if write_bucket is not None:
+        # set where you'll save the final seasonal average
+        url = f'{write_bucket}{path}/{row}/{year}/{season}_reflectance.zarr'
+        mapper = fs.get_mapper(url)
+        write_out(seasonal_average.chunk({'x': 1024, 'y': 1024}), mapper)
+        return seasonal_average.chunk({'x': 1024, 'y': 1024}).load()
+    else:
+        return seasonal_average.chunk({'x': 1024, 'y': 1024}).load()
 
 
 scene_seasonal_average_delayed = dask.delayed(scene_seasonal_average)
