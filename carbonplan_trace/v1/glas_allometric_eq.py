@@ -495,15 +495,15 @@ def palearctic_yavasli_2016(ds):
 
 
 def palearctic_brovkina_2015(ds):
-    required_metrics = ['VH']
+    required_metrics = ['MeanH']
     ds = get_all_height_metrics(ds, required_metrics)
-    return 12.8 * ds['VH'] - 99.9
+    return 12.8 * ds['MeanH'] - 99.9
 
 
 def palearctic_alberti_2013(ds):
-    required_metrics = ['VH']
+    required_metrics = ['MeanH']
     ds = get_all_height_metrics(ds, required_metrics)
-    return 2 * (3.33 * np.power(ds['VH'], 1.27))
+    return 2 * (3.33 * np.power(ds['MeanH'], 1.27))
 
 
 def palearctic_whrc(ds):
@@ -521,12 +521,16 @@ def palearctic_shang_and_chazette_2014(ds):
 
 
 def palearctic_simonson_2016(ds):
-    required_metrics = ['VH']
+    required_metrics = ['MeanH']
     ds = get_all_height_metrics(ds, required_metrics)
-    return np.exp(3.02 + 0.89 * np.log(ds['VH']))
+    return np.exp(3.02 + 0.89 * np.log(ds['MeanH']))
 
 
 def palearctic_patenaude_2004(ds):
+    # if the allometric equation is based on Patenaude et al 2004, we limited the input data to the range for which the equation was fitted
+    # by dropping any out of range shots in post-process biomass
+    # this procedure is implemented following Mary Farina's manuscript, and the range (13-25m) is based on Figure 4a of Patenaude
+    # "Quantifying forest above ground carbon content using LiDAR remote sensing"
     required_metrics = ['h80_p12']
     ds = get_all_height_metrics(ds, required_metrics)
     return 2 * (1.36 * 0.68 * 0.49) * 19.186 * np.exp(0.1256 * ds['h80_p12'])
@@ -905,13 +909,18 @@ def calculate_biomass(ds):
 
 
 def post_process_biomass(ds):
-    ds = get_all_height_metrics(ds, metrics=['VH', 'treecover2000_mean'])
+    ds = get_all_height_metrics(ds, metrics=['VH', 'treecover2000_mean', 'h80_p12'])
     # drop records where VH or treecover2000_mean are negative
     mask = (ds.VH >= 0) & (ds.treecover2000_mean >= 0)
     ds = ds.where(mask, drop=True)
-    # print(
-    #     f'Dropping {100 - mask.mean().values * 100}% of records due to negative tree canopy metrics'
-    # )
+
+    # if the allometric equation is based on Patenaude et al 2004, we limited the input data to the range for which the equation was fitted
+    # this procedure is implemented following Mary Farina's manuscript, and the range (13-25m) is based on Figure 4a of Patenaude
+    # Quantifying forest above ground carbon content using LiDAR remote sensing
+    to_drop = (ds.allometric_eq == 'palearctic_patenaude_2004') & (
+        (ds.h80_p12 > 25) | (ds.h80_p12 < 13)
+    )
+    ds = ds.where(~to_drop, drop=True)
 
     # From Farina 2018: if VH < 2, predicted biomass < 1 Mg/ha, or canopy cover < 10%, set biomass to 0
     mask = (ds.VH < 2) | (ds.biomass < 1) | (ds.treecover2000_mean < 10)

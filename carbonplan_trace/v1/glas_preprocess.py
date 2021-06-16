@@ -25,6 +25,7 @@ def calculate_derived_variables(data, tiles):
 
     # waveform extent here is calculated based on the signal beginning and end identified in the GLAH14 data
     data = ht.get_height_metric_value(ds=data, metric="wf_extent", recalc=True)
+    data = ht.get_dist_metric_value(ds=data, metric="gaussian_fit_dist")
 
     data['glas_elev'] = data.elevation + data.elevation_correction
 

@@ -743,12 +743,12 @@ def energy_adj_ground_to_sig_end(ds):
         output_dtypes=[int],
     )
 
-    ds = get_dist_metric_value(ds, metric='adj_ground_peak_dist')
+    ds = get_dist_metric_value(ds, metric='adj_ground_peak_dist_actual_wf')
     # the processed wf is from sig beg to sig end, select adj ground peak to sig end instead
     ground_energy = select_valid_area(
         bins=ds.rec_wf_sample_dist,
         wf=wf_in_digital_count,
-        signal_begin_dist=ds.adj_ground_peak_dist,
+        signal_begin_dist=ds.adj_ground_peak_dist_actual_wf,
         signal_end_dist=ds.sig_end_dist,
     )
 
