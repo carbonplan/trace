@@ -56,9 +56,7 @@ def worldclim(ds, dtype='int16'):
     mapper = fsspec.get_mapper(
         's3://carbonplan-climatetrace/v1/data/intermediates/annual_averaged_worldclim.zarr'
     )
-    print('loading worldlcim')
     worldclim_ds = xr.open_zarr(mapper, consolidated=True).astype(dtype)
-    print('subsetting')
     worldclim_subset = worldclim_ds.sel(
         lon=slice(float(ds.x.min().values), float(ds.x.max().values)),
         lat=slice(float(ds.y.max().values), float(ds.y.min().values)),
@@ -149,7 +147,6 @@ def biomass(tiles, year):
             complete_df = pd.concat([complete_df, df], axis=0)
         else:
             complete_df = df
-    print(complete_df.keys())
     complete_df['year'] = complete_df.apply(grab_year, axis=1)
     complete_df = complete_df[complete_df['year'] == year]
     return complete_df
