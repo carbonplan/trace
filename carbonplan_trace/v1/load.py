@@ -63,14 +63,11 @@ def worldclim(ds, dtype='int16'):
         lon=slice(float(ds.x.min().values), float(ds.x.max().values)),
         lat=slice(float(ds.y.max().values), float(ds.y.min().values)),
     ).load()
-    print('scaling')
     for var in WORLDCLIM_SCALING_FACTORS.keys():
         worldclim_subset[var] = worldclim_subset[var] * WORLDCLIM_SCALING_FACTORS[var]
-    print('reproejcting')
     worldclim_reprojected = utils.find_matching_records(
         worldclim_subset, ds.y, ds.x, dtype=dtype
     ).load()
-    print('adding to dataset and deleting')
     all_vars = worldclim_subset.data_vars
 
     for var in all_vars:
@@ -152,6 +149,7 @@ def biomass(tiles, year):
             complete_df = pd.concat([complete_df, df], axis=0)
         else:
             complete_df = df
+    print(complete_df.keys())
     complete_df['year'] = complete_df.apply(grab_year, axis=1)
     complete_df = complete_df[complete_df['year'] == year]
     return complete_df

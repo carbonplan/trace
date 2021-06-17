@@ -99,11 +99,8 @@ def create_combined_landsat_biomass_df(data, tiles, year):
         The df with the biomass (and potentially other variables) and
         the corresponding landsat data
     '''
-    biomass_variables = (
-        [f'BIO{str(n).zfill(2)}' for n in range(1, 20)]
-        + ['burned', 'treecover2000_mean']
-        + ['prec', 'srad', 'tavg', 'tmax', 'tmin', 'vapr', 'wind']
-        + ['elev', 'slope', 'aspect', 'lat', 'lon']
+    biomass_variables = (['burned', 'treecover2000_mean',  'ecoregion']
+        + ['lat', 'lon']
     )
     # open all the biomass tiles
     # don't need to do the bounding box trimming because
