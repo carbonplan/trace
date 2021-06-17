@@ -23,16 +23,9 @@ def calculate_derived_variables(data, tiles):
         * SPEED_OF_LIGHT
     ) / 2
 
-    metrics = [
-        "gaussian_fit_dist",
-        "sig_begin_dist",
-        "sig_end_dist",
-        "ground_peak_dist",
-    ]
-    for metric in metrics:
-        data = ht.get_dist_metric_value(data, metric)
-
+    # waveform extent here is calculated based on the signal beginning and end identified in the GLAH14 data
     data = ht.get_height_metric_value(ds=data, metric="wf_extent", recalc=True)
+    data = ht.get_dist_metric_value(ds=data, metric="gaussian_fit_dist")
 
     data['glas_elev'] = data.elevation + data.elevation_correction
 
@@ -105,6 +98,8 @@ def filter_large_leading_and_trailing_edge_extent(ds):
     assert (ds.leading_edge_extent >= 0).all()
     assert (ds.trailing_edge_extent >= 0).all()
 
+    # waveform extent here is calculated based on the signal beginning and end identified in the GLAH14 data
+    # and leading/trailing edge extents were calculated using the sum of up to 6 gaussian peaks (modeled waveform)
     mask = (
         # leading edge <= 50% of wf extent, otherwise indicates large differences in canopy height
         (ds.leading_edge_extent <= (ds.wf_extent * 0.5))
