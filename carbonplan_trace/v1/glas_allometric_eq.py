@@ -3,9 +3,10 @@ from datetime import datetime, timezone
 import numpy as np
 import xarray as xr
 
-import carbonplan_trace.v1.utils as utils
 from carbonplan_trace.v0.data import cat
+from carbonplan_trace.v1 import utils
 from carbonplan_trace.v1.glas_height_metrics import HEIGHT_METRICS_MAP, get_all_height_metrics
+from carbonplan_trace.v1.glas_preprocess import get_modeled_waveform
 
 ECOREGIONS_GROUPINGS = {
     'afrotropic': np.arange(1, 117),
@@ -231,6 +232,8 @@ CONUS_CONIFER_GROUPING = {
 
 
 def tropics(ds):
+    if 'modeled_wf' not in ds:
+        ds['modeled_wf'] = get_modeled_waveform(ds)
     required_metrics = ['HOME_Baccini', 'H10_Baccini', 'H25_Baccini', 'H60_Baccini', 'CANOPY_ENE']
     ds = get_all_height_metrics(ds, required_metrics)
     return (
@@ -504,6 +507,8 @@ def palearctic_alberti_2013(ds):
 
 
 def palearctic_whrc(ds):
+    if 'modeled_wf' not in ds:
+        ds['modeled_wf'] = get_modeled_waveform(ds)
     required_metrics = ['HOME_Baccini', 'CANOPY_DEP', 'VH']
     ds = get_all_height_metrics(ds, required_metrics)
     return 13.7949 + 0.8912 * ds['HOME_Baccini'] + 25.4467 * ds['CANOPY_DEP'] - 18.1995 * ds['VH']
