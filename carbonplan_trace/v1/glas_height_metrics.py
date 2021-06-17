@@ -459,55 +459,26 @@ def get_adj_ground_peak_dist_actual_wf(ds):
     """
     the position of whichever of the two lowest peaks has greater amplitude. peaks are identified from the smoothed, actual waveform
     """
-    # allow some buffer between the signal end and the ground peak as described in Sun et al 2008
+    # TODO: allow some buffer between the signal end and the ground peak as described in Sun et al 2008
     # (Forest vertical structure from GLAS: An evaluation using LVIS and SRTM data)
-    # the buffer in Sun et al is the "half width of the transmitted laser pulse", using 2 bins here as an approximation
-    # TODO: switch to the more rigorous approach
-    sig_end_buffer = 2
-
+    # the buffer in Sun et al is the "half width of the transmitted laser pulse"
     wf = ds.processed_wf
 
-    # we need 1 array for each: 1) lowest peak loc, 2) lowest peak amp, 3) final result
-    data = {}
-    for key in ['lowest_peak_loc', 'lowest_peak_amp', 'result']:
-        data[key] = xr.DataArray(
-            0,
-            dims=["unique_index"],
-            coords=[wf.coords["unique_index"]],
-        )
+    diff_previous = wf - wf.shift(rec_bin=1)
+    diff_next = wf - wf.shift(rec_bin=-1)
+    peak_mask = ((diff_previous > 0) & (diff_next > 0)).compute()
 
-    # searching from signal end to signal beginning for peaks
-    # store in appropriate arrays depending on whether we've already found a peak and which one has greater amplitude
-    for i in np.arange(sig_end_buffer, wf.rec_bin.shape[0] - 1):
-        second_peak_mask = (
-            # where the current bin has waveform intensity larger then the previous bin and the next bin
-            (wf.isel(rec_bin=i) > wf.isel(rec_bin=i - 1))
-            & (wf.isel(rec_bin=i) > wf.isel(rec_bin=i + 1))
-            & (data['lowest_peak_loc'] > 0)  # and this is not first peak found
-            & (data['result'] == 0)  # and we haven't recorded the final output
-        )
+    lowest_peak = peak_mask.argmax(dim='rec_bin')
+    peak_mask[lowest_peak] = False
+    second_lowest_peak = peak_mask.argmax(dim='rec_bin')
+    lowest_amp = wf.isel(rec_bin=lowest_peak)
+    second_lowest_amp = wf.isel(rec_bin=second_lowest_peak)
 
-        # where current amp is larger than the lowest peak amp recorded, record the current location as final result
-        # else record the lowest peak location as the final result
-        greatest_amp_mask = wf.isel(rec_bin=i) >= data['lowest_peak_amp']
-        data['result'] = xr.where(second_peak_mask & greatest_amp_mask, x=i, y=data['result'])
-        data['result'] = xr.where(
-            second_peak_mask & ~greatest_amp_mask, x=data['lowest_peak_loc'], y=data['result']
-        )
+    result = xr.where(
+        lowest_amp >= second_lowest_amp, x=lowest_peak, y=second_lowest_peak
+    ).compute()
 
-        # store if this is the lowest peak
-        lowest_peak_mask = (
-            # where the current bin has waveform intensity larger then the previous bin and the next bin
-            (wf.isel(rec_bin=i) > wf.isel(rec_bin=i - 1))
-            & (wf.isel(rec_bin=i) > wf.isel(rec_bin=i + 1))
-            & (data['lowest_peak_loc'] == 0)  # and this is the first peak found
-        )
-        data['lowest_peak_loc'] = xr.where(lowest_peak_mask, x=i, y=data['lowest_peak_loc'])
-        data['lowest_peak_amp'] = xr.where(
-            lowest_peak_mask, x=wf.isel(rec_bin=i), y=data['lowest_peak_amp']
-        )
-
-    return ds.rec_wf_sample_dist.isel(rec_bin=data['result'])
+    return ds.rec_wf_sample_dist.isel(rec_bin=result)
 
 
 def get_bottom_of_canopy_dist(ds):
@@ -874,6 +845,13 @@ def plot_shot(record):
         [record.ground_peak_dist, record.ground_peak_dist],
         "y--",
         label="Ground Peak",
+    )
+
+    plt.plot(
+        [-0.05, xmax],
+        [record.adj_ground_peak_dist_actual_wf, record.adj_ground_peak_dist_actual_wf],
+        "c--",
+        label="Ground (Actual)",
     )
 
     # plt.ylim(record.sig_end_dist+10, record.sig_begin_dist-10)
