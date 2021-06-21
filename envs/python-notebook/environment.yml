@@ -52,6 +52,7 @@ dependencies:
   - scikit-learn
   - scipy
   - seaborn
+  - tenacity
   - tqdm
   - utm
   - xarray

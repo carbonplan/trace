@@ -1,4 +1,5 @@
 import xarray as xr
+from tenacity import retry
 
 from . import cat
 
@@ -32,6 +33,7 @@ def _preprocess(da, lat=None, lon=None):
     return da
 
 
+@retry
 def open_hansen_change_tile(lat, lon):
     """
     Open single tile from the Hansen 2020 dataset and then
@@ -54,7 +56,7 @@ def open_hansen_change_tile(lat, lon):
     ds = xr.Dataset()
 
     # Global forest change data
-    variables = ["treecover2000", "lossyear"]  # "gain", "datamask" , "first", "last"]
+    variables = ["treecover2000", "lossyear"]
     for v in variables:
         da = cat.hansen_change(variable=v, lat=lat, lon=lon).to_dask().pipe(_preprocess)
         da = da.astype(dtypes[v])
