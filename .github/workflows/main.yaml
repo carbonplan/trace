@@ -39,6 +39,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v2
+      - name: Set the repo hash
+        id: reop_hash
+        run: |
+          echo $(git rev-parse --short ${GITHUB_SHA})
+          echo "REPO_HASH=$(git rev-parse --short ${GITHUB_SHA})" >> $GITHUB_ENV
       - name: Docker meta
         id: docker_meta
         uses: crazy-max/ghaction-docker-meta@v3.3.0
@@ -62,6 +67,8 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.docker_meta.outputs.tags }}
           labels: ${{ steps.docker_meta.outputs.labels }}
+          build-arg: |
+            REPO_HASH=${{ env.REPO_HASH }}
 
   lint:
     runs-on: ubuntu-latest
