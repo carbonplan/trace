@@ -133,7 +133,6 @@ def biomass(tiles, year):
         scene-specific UTM zone
 
     '''
-    # TODO need to fix this to open in the same way as for the other datasets (by passing the bounding box)
     complete_df = None
     for tile in tiles:
         file_mapper = fs.get_mapper(
@@ -147,6 +146,6 @@ def biomass(tiles, year):
             complete_df = pd.concat([complete_df, df], axis=0)
         else:
             complete_df = df
-    complete_df['year'] = complete_df.apply(grab_year, axis=1)
-    complete_df = complete_df[complete_df['year'] == year]
+    
+    complete_df = complete_df[complete_df.datetime.dt.year == year]
     return complete_df
