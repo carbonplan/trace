@@ -55,6 +55,7 @@ dependencies:
   - tenacity
   - tqdm
   - utm
+  - watermark
   - xarray
   - xgboost
   - zarr
