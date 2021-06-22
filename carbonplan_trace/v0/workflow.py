@@ -20,9 +20,7 @@ skip_existing = True
 tile_template = "s3://carbonplan-climatetrace/v0.3/tiles/30m/{tile_id}.zarr"
 coarse_tile_template = "s3://carbonplan-climatetrace/v0.3/tiles/3000m/{tile_id}.zarr"
 coarse_full_template = "s3://carbonplan-climatetrace/v0.3/global/3000m/raster.zarr"
-shapes_file = 's3://carbonplan-climatetrace/country-shapes.json'
-# TODO: update to remote location
-shapes_file = '../../notebooks/countries.shp'
+shapes_file = 's3://carbonplan-climatetrace/inputs/shapes/countries.shp'
 rollup_template = 's3://carbonplan-climatetrace/v0.3/country_rollups_{var}.csv'
 chunks = {"lat": 4000, "lon": 4000, "year": 2}
 coarse_chunks = {"lat": 400, "lon": 400, "year": -1}
