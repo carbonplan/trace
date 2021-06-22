@@ -46,11 +46,15 @@ jobs:
           echo "REPO_HASH=$(git rev-parse --short ${GITHUB_SHA})" >> $GITHUB_ENV
       - name: Docker meta
         id: docker_meta
-        uses: crazy-max/ghaction-docker-meta@v3.3.0
+        uses: docker/metadata-action@v3.3.0
         with:
           images: |
             carbonplan/trace-python-notebook
-          tag-sha: true
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{major}}.{{minor}}.{{patch}}
+            type=sha
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v1.2.0
       - name: Set up Docker Buildx
@@ -67,7 +71,8 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.docker_meta.outputs.tags }}
           labels: ${{ steps.docker_meta.outputs.labels }}
-          build-arg: |
+          cache-from: type=registry,ref=carbonplan/trace-python-notebook:latest
+          build-args: |
             REPO_HASH=${{ env.REPO_HASH }}
 
   lint:
