@@ -6,7 +6,6 @@ google-cloud-storage
 intake
 intake-geopandas
 intake-xarray
-netcdf4
 h5py
 pandas
 pytest
