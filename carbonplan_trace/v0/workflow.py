@@ -17,13 +17,13 @@ from carbonplan_trace.v0.core import calc_emissions, coarsen_emissions
 from carbonplan_trace.v0.data.load import open_hansen_change_tile
 
 skip_existing = True
-tile_template = "s3://carbonplan-climatetrace/v0.2/tiles/30m/{tile_id}.zarr"
-coarse_tile_template = "s3://carbonplan-climatetrace/v0.2/tiles/3000m/{tile_id}.zarr"
-coarse_full_template = "s3://carbonplan-climatetrace/v0.2/global/3000m/raster.zarr"
+tile_template = "s3://carbonplan-climatetrace/v0.3/tiles/30m/{tile_id}.zarr"
+coarse_tile_template = "s3://carbonplan-climatetrace/v0.3/tiles/3000m/{tile_id}.zarr"
+coarse_full_template = "s3://carbonplan-climatetrace/v0.3/global/3000m/raster.zarr"
 shapes_file = 's3://carbonplan-climatetrace/country-shapes.json'
 # TODO: update to remote location
 shapes_file = '../../notebooks/countries.shp'
-rollup_template = 's3://carbonplan-climatetrace/v0.2/country_rollups.csv'
+rollup_template = 's3://carbonplan-climatetrace/v0.3/country_rollups_{var}.csv'
 chunks = {"lat": 4000, "lon": 4000, "year": 2}
 coarse_chunks = {"lat": 400, "lon": 400, "year": -1}
 years = (2012, 2020)
@@ -132,32 +132,37 @@ def rollup_shapes():
     shapes_df = geopandas.read_file(shapes_file)
 
     shapes_df['numbers'] = np.arange(len(shapes_df))
-    mask = regionmask.mask_geopandas(shapes_df, ds.lon, ds.lat, numbers='numbers')
+    mask = regionmask.mask_geopandas(shapes_df, ds['lon'], ds['lat'], numbers='numbers')
 
-    # this will trigger dask compute
-    df = ds['emissions'].groupby(mask).sum().to_pandas()
+    for var in ['emissions_from_clearing', 'emissions_from_fire']:
 
-    # cleanup dataframe
-    names = shapes_df['alpha3']
-    columns = {k: names[int(k)] for k in df.columns}
-    df = df.rename(columns=columns)
+        # this will trigger dask compute
+        df = ds[var].groupby(mask).sum().to_pandas()
 
-    # convert to teragrams
-    df = df / 1e9
+        # cleanup dataframe
+        names = shapes_df['alpha3']
+        columns = {k: names[int(k)] for k in df.columns}
+        df = df.rename(columns=columns)
 
-    # package in climate trace format
-    df_out = df.stack().reset_index()
-    df_out = df_out.sort_values(by=['region', 'year']).reset_index(drop=True)
+        # convert to teragrams
+        df = df / 1e9
 
-    df_out['begin_date'] = pd.to_datetime(df_out.year, format='%Y')
-    df_out['end_date'] = pd.to_datetime(df_out.year + 1, format='%Y')
+        # package in climate trace format
+        df_out = df.stack().reset_index()
+        df_out = df_out.sort_values(by=['region', 'year']).reset_index(drop=True)
 
-    df_out = df_out.drop(columns=['year']).rename(columns={0: 'tCO2eq', 'region': 'iso3_country'})
-    df_out = df_out[['iso3_country', 'begin_date', 'end_date', 'tCO2eq']]
+        df_out['begin_date'] = pd.to_datetime(df_out.year, format='%Y')
+        df_out['end_date'] = pd.to_datetime(df_out.year + 1, format='%Y')
 
-    # write out
-    df_out.to_csv(rollup_template, index=False)
-    print(f'writing data to {rollup_template}')
+        df_out = df_out.drop(columns=['year']).rename(
+            columns={0: 'tCO2eq', 'region': 'iso3_country'}
+        )
+        df_out = df_out[['iso3_country', 'begin_date', 'end_date', 'tCO2eq']]
+
+        # write out
+        uri = rollup_template.format(var=var)
+        df_out.to_csv(uri, index=False)
+        print(f'writing data to {uri}')
 
 
 def main():
@@ -176,7 +181,7 @@ def main():
 
         combine_all_tiles(coarse_urls)
 
-        # rollup_shapes()
+        rollup_shapes()
 
 
 if __name__ == "__main__":
