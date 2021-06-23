@@ -9,6 +9,8 @@ import utm
 import xarray as xr
 from gcsfs import GCSFileSystem
 from pyproj import Transformer
+from s3fs import S3FileSystem
+
 
 
 def save_to_zarr(ds, url, list_of_variables=None, mode='w', append_dim=None):
@@ -87,7 +89,7 @@ def open_and_combine_lat_lon_data(folder, tiles=None, lat_lon_box=None):
     If tiles is none, load all data available
     If no file is available, return None
     """
-    fs = GCSFileSystem(cache_timeout=0)
+    fs = S3FileSystem()
     if not tiles:
         tiles = [
             os.path.splitext(os.path.split(path)[-1])[0]
@@ -267,7 +269,7 @@ def find_tiles_for_bounding_box(min_lat, max_lat, min_lon, max_lon):
     the tile names are in the format of {lat}_{lon} where lat, lon represent the upper left corner
     ocean tiles are removed
     """
-    fs = GCSFileSystem(cache_timeout=0)
+    fs = S3FileSystem()
     folder = 's3://carbonplan-climatetrace/intermediate/ecoregions_mask/'
     available_tiles = [
         os.path.splitext(os.path.split(path)[-1])[0]
