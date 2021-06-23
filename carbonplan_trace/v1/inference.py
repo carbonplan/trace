@@ -23,9 +23,11 @@ from ..v1 import load, utils
 
 fs = S3FileSystem(requester_pays=True)
 
+
 def write_nodata(ds):
     for var in ds.data_vars:
         ds[var].rio.write_nodata(np.nan, inplace=True)
+
 
 def write_crs_dataset(ds, zone=None, overwrite=False):
     '''
