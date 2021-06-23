@@ -316,6 +316,35 @@ def calc_NDII(ds):
     return ds
 
 
+def find_months_of_interest(row):
+    '''
+    Grab the growing season months based upon the
+    landsat row.
+    '''
+    if row <= 40:
+        # northern hemisphere
+        return ['06', '07', '08']
+    elif row >= 80:
+        # southern hemisphere
+        return ['12', '01', '02']
+    else:
+        # tropics
+        return [f'{month:02}' for month in np.arange(1, 13)]
+
+
+def make_datestamps(months, year):
+    '''
+    Construct the datestamp you'll search for in the landsat archive.
+    We will grab landsat scenes corresponding to the year of interest,
+    except for january/february which we will grab from the following year
+    to ensure that the austral summer is assigned to the year of interest.
+    i.e. calculation of biomass for 2003 in the southern hemisphere will
+    include landsat scenes from jan/feb 2004.
+    '''
+    years = [year + 1 if int(month) < 3 else year for month in months]
+    return ['{}{}'.format(year, month) for (year, month) in zip(years, months)]
+
+
 def scene_seasonal_average(
     path,
     row,
@@ -327,7 +356,6 @@ def scene_seasonal_average(
     fs,
     write_bucket=None,
     bands_of_interest='all',
-    season='JJA',
     landsat_generation='landsat-7',
 ):
     '''
@@ -342,16 +370,18 @@ def scene_seasonal_average(
         landsat_bucket = 's3://usgs-landsat/collection02/level-2/standard/etm/{}/{:03d}/{:03d}/'
     elif landsat_generation == 'landsat-5':
         landsat_bucket = 's3://usgs-landsat/collection02/level-2/standard/tm/{}/{:03d}/{:03d}/'
-    month_keys = {'JJA': ['06', '07', '08']}
+    # find the right month keys based upon your landsat row
+    months = find_months_of_interest(row)
+
     valid_files, ds_list = [], []
 
     if bands_of_interest == 'all':
         bands_of_interest = ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7']
     scene_stores = fs.ls(landsat_bucket.format(year, path, row))
-    summer_datestamps = ['{}{}'.format(year, month) for month in month_keys[season]]
+    datestamps = make_datestamps(months, year)
     for scene_store in scene_stores:
-        for summer_datestamp in summer_datestamps:
-            if summer_datestamp in scene_store:
+        for datestamp in datestamps:
+            if datestamp in scene_store:
                 valid_files.append(scene_store)
     for file in valid_files:
         scene_id = file[-40:]
