@@ -83,7 +83,7 @@ def get_mask(ds):
         & (abs(ds.sig_end_offset) >= 1)
     )
 
-    return mask
+    return mask.load()
 
 
 def filter_large_leading_and_trailing_edge_extent(ds):
@@ -95,8 +95,6 @@ def filter_large_leading_and_trailing_edge_extent(ds):
         ds=ds,
         metrics=metrics,
     )
-    assert (ds.leading_edge_extent >= 0).all()
-    assert (ds.trailing_edge_extent >= 0).all()
 
     # waveform extent here is calculated based on the signal beginning and end identified in the GLAH14 data
     # and leading/trailing edge extents were calculated using the sum of up to 6 gaussian peaks (modeled waveform)
@@ -233,7 +231,6 @@ def preprocess(ds, min_lat, max_lat, min_lon, max_lon):
     # find a list of 10x10 degree tile names covering the bounding box
     # the ancillary data used in preprocess are stored as these 10x10 degree tiles
     tiles = utils.find_tiles_for_bounding_box(min_lat, max_lat, min_lon, max_lon)
-
     # calculate variables used in the rest of the preprocess
     ds = calculate_derived_variables(data=ds, tiles=tiles)
 

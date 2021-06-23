@@ -332,9 +332,8 @@ def get_percentile_dist(ds, percentile):
     to the satellite = lower elevation on earth
     percentiles is a list in hundredth format (e.g. to get 10th percentile input value 10)
     """
-    total = ds['processed_wf'].sum(dim="rec_bin")
     cumsum = ds['processed_wf'].cumsum(dim="rec_bin")
-    target = total * percentile / 100.0
+    target = ds['processed_wf'].sum(dim="rec_bin") * percentile / 100.0
 
     return ds.rec_wf_sample_dist.where(cumsum > target).max(dim="rec_bin")
 
@@ -347,9 +346,8 @@ def get_percentile_dist_modeled_wf(ds, percentile):
     to the satellite = lower elevation on earth
     percentiles is a list in hundredth format (e.g. to get 10th percentile input value 10)
     """
-    total = ds['modeled_wf'].sum(dim="rec_bin")
     cumsum = ds['modeled_wf'].cumsum(dim="rec_bin")
-    target = total * percentile / 100.0
+    target = ds['modeled_wf'].sum(dim="rec_bin") * percentile / 100.0
 
     return ds.rec_wf_sample_dist.where(cumsum > target).max(dim="rec_bin")
 
