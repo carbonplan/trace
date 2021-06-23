@@ -23,6 +23,9 @@ from ..v1 import load, utils
 
 fs = S3FileSystem(requester_pays=True)
 
+def write_nodata(ds):
+    for var in ds.data_vars:
+        ds[var].rio.write_nodata(np.nan, inplace=True)
 
 def write_crs_dataset(ds, zone=None, overwrite=False):
     '''
@@ -197,6 +200,7 @@ def predict(
             )
             # add in other datasets
             landsat_zone = landsat_ds.utm_zone_number + landsat_ds.utm_zone_letter
+            write_nodata(landsat_ds)
             data, tiles, bounding_box = reproject_dataset_to_fourthousandth_grid(
                 landsat_ds, zone=landsat_zone
             )
