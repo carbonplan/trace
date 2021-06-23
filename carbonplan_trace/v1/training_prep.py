@@ -17,6 +17,7 @@ from rasterio.session import AWSSession
 from s3fs import S3FileSystem
 
 from carbonplan_trace.v1 import load, utils
+from carbonplan_trace.v1.glas_allometric_eq import ECO_TO_REALM_MAP
 from carbonplan_trace.v1.inference import reproject_dataset_to_fourthousandth_grid
 from carbonplan_trace.v1.landsat_preprocess import scene_seasonal_average
 
@@ -51,32 +52,37 @@ def prep_training_dataset(
         scheduler='single-threaded'
     ):  # this? **** #threads #single-threaded # threads??
         with rio.Env(aws_session):
-
             # create the landsat scene for that year
             landsat_ds = scene_seasonal_average(
-                path,
-                row,
-                year,
-                access_key_id,
-                secret_access_key,
-                aws_session,
-                core_session,
-                fs,
-                write_bucket='s3://carbonplan-climatetrace/v1/',
-                bands_of_interest='all',
+                path=path,
+                row=row,
+                year=year,
+                access_key_id=access_key_id,
+                secret_access_key=secret_access_key,
+                aws_session=aws_session,
+                core_session=core_session,
+                fs=fs,
+                bands_of_interest=bands_of_interest,
                 landsat_generation='landsat-7',
             )
-            # add in other datasets
+            # reproject from utm to lat/lon
             landsat_zone = landsat_ds.utm_zone_number + landsat_ds.utm_zone_letter
             data, tiles, bounding_box = reproject_dataset_to_fourthousandth_grid(
                 landsat_ds, zone=landsat_zone
             )
             del landsat_ds
+            # add in other datasets
             data = add_aster_worldclim(data, tiles, lat_lon_box=bounding_box).load()
-            # here we take it to dataframe
+
+            # here we take it to dataframe and add in realm information
             df = create_combined_landsat_biomass_df(data, tiles, year)
             del data
-            utils.write_parquet(df, training_write_bucket, access_key_id, secret_access_key)
+            # according to realm, save to the correct bucket
+            for realm, sub in df.groupby('realm'):
+                output_filepath = (
+                    f'{training_write_bucket}/{realm}/{year}/{path:03d}{row:03d}.parquet'
+                )
+                utils.write_parquet(df, output_filepath, access_key_id, secret_access_key)
 
 
 prep_training_dataset_delayed = dask.delayed(prep_training_dataset)
@@ -101,11 +107,12 @@ def create_combined_landsat_biomass_df(data, tiles, year):
         The df with the biomass (and potentially other variables) and
         the corresponding landsat data
     '''
-    biomass_variables = ['biomass', 'burned', 'treecover2000_mean', 'ecoregion'] + ['lat', 'lon']
+    biomass_variables = ['biomass', 'burned', 'treecover2000_mean', 'ecoregion', 'lat', 'lon']
     # open all the biomass tiles
     # don't need to do the bounding box trimming because
     # it isn't spatial data (it's df)
     biomass_df = load.biomass(tiles, year)[biomass_variables]
+    biomass_df['realm'] = biomass_df.ecoregion.apply(ECO_TO_REALM_MAP.__getitem__)
     # TODO CHECK THIS LINE!!
     df = (
         data.sel(

@@ -206,8 +206,7 @@ def get_lat_lon_tags_from_tile_path(tile_path):
     outputs a lat lon tag eg, (50N, 120W)
     """
     fn = os.path.splitext(os.path.split(tile_path)[-1])[0]
-    lat = fn.split('_')[0]
-    lon = fn.split('_')[1]
+    lat, lon = fn.split('_')
 
     return lat, lon
 

@@ -206,6 +206,12 @@ REALM_GROUPINGS = {
 }
 
 
+ECO_TO_REALM_MAP = {}
+for realm, list_of_eco in REALM_GROUPINGS.items():
+    new_map = {eco: realm for eco in list_of_eco}
+    ECO_TO_REALM_MAP.update(new_map)
+
+
 CONUS_CONIFER_GROUPING = {
     'conus_conifer_nelson_2017': np.concatenate(
         (
@@ -959,11 +965,9 @@ def apply_allometric_equation(ds, min_lat, max_lat, min_lon, max_lon):
 
 
 def get_realm_from_ecoregion(ecoregions):
-    ECO_TO_REALM_MAP = {}
-    for realm, list_of_eco in REALM_GROUPINGS.items():
-        new_map = {eco: realm for eco in list_of_eco}
-        ECO_TO_REALM_MAP.update(new_map)
-
+    """
+    input and output are both data arrays
+    """
     realms = xr.apply_ufunc(
         ECO_TO_REALM_MAP.__getitem__,
         ecoregions,
