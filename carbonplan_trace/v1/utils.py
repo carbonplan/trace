@@ -52,7 +52,7 @@ def convert_long3_to_long1(long3):
     return long1
 
 
-def open_zarr_file(uri, file_system='gs'):
+def open_zarr_file(uri, file_system='s3'):
     if not uri.startswith(f'{file_system}://'):
         uri = f'{file_system}://{uri}'
     mapper = fsspec.get_mapper(uri)
@@ -61,7 +61,7 @@ def open_zarr_file(uri, file_system='gs'):
 
 
 def open_glah14_data(do_convert_long3_to_long1=True):
-    data = open_zarr_file("gs://carbonplan-climatetrace/intermediates/glah14.zarr")
+    data = open_zarr_file("s3://carbonplan-climatetrace/intermediate/glah14.zarr")
     if do_convert_long3_to_long1:
         data["lon"] = convert_long3_to_long1(data.lon)
     return data
@@ -70,13 +70,12 @@ def open_glah14_data(do_convert_long3_to_long1=True):
 def open_glah01_data():
     fs = GCSFileSystem(cache_timeout=0)
     uris = [
-        f'gs://{f}'
-        for f in fs.ls('gs://carbonplan-climatetrace/intermediates/glah01/')
+        f's3://{f}'
+        for f in fs.ls('s3://carbonplan-climatetrace/intermediate/glah01/')
         if not f.endswith('/')
     ]
     ds_list = [open_zarr_file(uri) for uri in uris]
     ds = xr.concat(ds_list, dim='record_index').chunk({'record_index': 500})
-    # try changing this
     for k in ds:
         _ = ds[k].encoding.pop('chunks', None)
     return ds
@@ -125,7 +124,7 @@ def open_srtm_data(tiles=None):
     Load SRTM data stored as 10x10 degree tiles
     If tiles is none, load all data available
     """
-    folder = 'gs://carbonplan-climatetrace/intermediates/srtm/'
+    folder = 's3://carbonplan-climatetrace/intermediate/srtm/'
     ds = open_and_combine_lat_lon_data(folder, tiles)
 
     return ds
@@ -136,7 +135,7 @@ def open_ecoregion_data(tiles=None):
     Load ecoregion data stored as 10x10 degree tiles
     If tiles is none, load all data available
     """
-    folder = 'gs://carbonplan-climatetrace/intermediates/ecoregions_mask/'
+    folder = 's3://carbonplan-climatetrace/intermediate/ecoregions_mask/'
 
     return open_and_combine_lat_lon_data(folder, tiles)
 
@@ -146,7 +145,7 @@ def open_igbp_data(tiles=None, lat_lon_box=None):
     Load igbp data stored as 10x10 degree tiles
     If tiles is none, load all data available
     """
-    folder = 'gs://carbonplan-climatetrace/intermediates/igbp/'
+    folder = 's3://carbonplan-climatetrace/intermediate/igbp/'
 
     return open_and_combine_lat_lon_data(folder, tiles, lat_lon_box=lat_lon_box)
 
@@ -156,7 +155,7 @@ def open_burned_area_data(tiles):
     Load MODIS burned area data stored as 10x10 degree tiles
     If tiles is none, load all data available
     """
-    folder = 'gs://carbonplan-climatetrace/intermediates/modis_burned_area/'
+    folder = 's3://carbonplan-climatetrace/intermediate/modis_burned_area/'
 
     return open_and_combine_lat_lon_data(folder, tiles)
 
@@ -269,7 +268,7 @@ def find_tiles_for_bounding_box(min_lat, max_lat, min_lon, max_lon):
     ocean tiles are removed
     """
     fs = GCSFileSystem(cache_timeout=0)
-    folder = 'gs://carbonplan-climatetrace/intermediates/ecoregions_mask/'
+    folder = 's3://carbonplan-climatetrace/intermediate/ecoregions_mask/'
     available_tiles = [
         os.path.splitext(os.path.split(path)[-1])[0]
         for path in fs.ls(folder)
