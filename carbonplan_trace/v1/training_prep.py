@@ -39,7 +39,6 @@ def prep_training_dataset(
     secret_access_key,
     training_write_bucket=None,
     bands_of_interest='all',
-    season='JJA',
 ):
     core_session = boto3.Session(
         aws_access_key_id=access_key_id,
@@ -65,7 +64,6 @@ def prep_training_dataset(
                 fs,
                 write_bucket='s3://carbonplan-climatetrace/v1/',
                 bands_of_interest='all',
-                season=season,
                 landsat_generation='landsat-7',
             )
             # add in other datasets
