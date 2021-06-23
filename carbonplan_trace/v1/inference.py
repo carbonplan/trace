@@ -193,6 +193,7 @@ def predict(
                 write_bucket=None,  #'s3://carbonplan-climatetrace/v1/',
                 bands_of_interest='all',
                 season=season,
+                landsat_generation='landsat-7',
             )
             # add in other datasets
             landsat_zone = landsat_ds.utm_zone_number + landsat_ds.utm_zone_letter

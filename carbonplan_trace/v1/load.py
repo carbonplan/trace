@@ -1,8 +1,12 @@
+from datetime import datetime
+
 import fsspec
+import pandas as pd
 import xarray as xr
 from s3fs import S3FileSystem
 
 from carbonplan_trace.v0.data import cat
+from carbonplan_trace.v1.model import features
 
 from ..v1 import utils
 
@@ -37,17 +41,14 @@ def aster(ds, tiles, lat_lon_box=None, dtype='int16'):
     Note: ds must have coordinates as lat/lon and not x/y (have different names)
     otherwise the coordinates will not be turned into
     '''
-    print('load aster')
     full_aster = utils.open_and_combine_lat_lon_data(
         "gs://carbonplan-climatetrace/intermediates/aster/", tiles=tiles, lat_lon_box=lat_lon_box
     )
-    print('add reprojected aster')
     selected_aster = (
         utils.find_matching_records(full_aster, lats=ds.y, lons=ds.x, dtype=dtype)
         .load()
         .drop(['spatial_ref'])
     )
-    print('merging aster')
     return xr.merge([ds, selected_aster])
 
 
@@ -62,14 +63,11 @@ def worldclim(ds, dtype='int16'):
         lon=slice(float(ds.x.min().values), float(ds.x.max().values)),
         lat=slice(float(ds.y.max().values), float(ds.y.min().values)),
     ).load()
-    print('scaling')
     for var in WORLDCLIM_SCALING_FACTORS.keys():
         worldclim_subset[var] = worldclim_subset[var] * WORLDCLIM_SCALING_FACTORS[var]
-    print('reproejcting')
     worldclim_reprojected = utils.find_matching_records(
         worldclim_subset, ds.y, ds.x, dtype=dtype
     ).load()
-    print('adding to dataset and deleting')
     all_vars = worldclim_subset.data_vars
 
     for var in all_vars:
@@ -79,13 +77,10 @@ def worldclim(ds, dtype='int16'):
 
 
 def igbp(data, tiles, year, lat_lon_box=None, dtype='int8'):
-    print('loading igbp')
     igbp = utils.open_igbp_data(tiles, lat_lon_box=lat_lon_box)
-    print('reproject igbp')
     igbp_records = utils.find_matching_records(
         data=igbp, lats=data.y, lons=data.x, years=year, dtype=dtype
     )
-    print('add igbp')
     data['burned'] = igbp_records.igbp.drop(['spatial_ref'])
 
     del igbp
@@ -117,7 +112,14 @@ def treecover2000(tiles, data, lat_lon_box=None, dtype='int8'):
     return data
 
 
-def load_biomass(ul_lat, ul_lon):
+def grab_year(df):
+    '''
+    Access calendar year in timestamp within a dataframe
+    '''
+    return datetime.fromtimestamp(df['time']).year
+
+
+def biomass(tiles, year):
     '''
     Load in specific biomass tile.
     Parameters
@@ -134,9 +136,20 @@ def load_biomass(ul_lat, ul_lon):
 
     '''
     # TODO need to fix this to open in the same way as for the other datasets (by passing the bounding box)
-    file_mapper = fs.get_mapper(
-        'carbonplan-climatetrace/v1/data/intermediates/biomass/{}N_{}W.zarr'.format(ul_lat, ul_lon)
-    )
+    complete_df = None
+    for tile in tiles:
+        file_mapper = fs.get_mapper(
+            'carbonplan-climatetrace/v1/data/intermediates/biomass/{}.zarr'.format(tile)
+        )
 
-    ds = xr.open_zarr(file_mapper, consolidated=True)
-    return ds
+        ds = xr.open_zarr(file_mapper, consolidated=True)
+        df = ds.stack(unique_index=("record_index", "shot_number")).to_dataframe()
+        df = df[df['biomass'].notnull()]
+        if complete_df is not None:
+            complete_df = pd.concat([complete_df, df], axis=0)
+        else:
+            complete_df = df
+    print(complete_df.keys())
+    complete_df['year'] = complete_df.apply(grab_year, axis=1)
+    complete_df = complete_df[complete_df['year'] == year]
+    return complete_df

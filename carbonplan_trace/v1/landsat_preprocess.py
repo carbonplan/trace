@@ -95,7 +95,6 @@ def grab_ds(item, bands_of_interest, cog_mask, utm_zone, utm_letter):
     da_list = []
     for url in url_list:
         da_list.append(rioxarray.open_rasterio(url, chunks={'x': 1024, 'y': 1024}))
-
     # combine into one dataset
     ds = xr.concat(da_list, dim='band').to_dataset(dim='band').rename({1: 'reflectance'})
     del da_list
@@ -329,6 +328,7 @@ def scene_seasonal_average(
     write_bucket=None,
     bands_of_interest='all',
     season='JJA',
+    landsat_generation='landsat-7',
 ):
     '''
     Given location/time specifications will grab all valid scenes,
@@ -338,7 +338,10 @@ def scene_seasonal_average(
     test_credentials(core_session)
     # all of this is just to get the right formatting stuff to access the scenes
     test_client = core_session.client('s3')
-    landsat_bucket = 's3://usgs-landsat/collection02/level-2/standard/tm/{}/{:03d}/{:03d}/'
+    if landsat_generation == 'landsat-7':
+        landsat_bucket = 's3://usgs-landsat/collection02/level-2/standard/etm/{}/{:03d}/{:03d}/'
+    elif landsat_generation == 'landsat-5':
+        landsat_bucket = 's3://usgs-landsat/collection02/level-2/standard/tm/{}/{:03d}/{:03d}/'
     month_keys = {'JJA': ['06', '07', '08']}
     valid_files, ds_list = [], []
 
