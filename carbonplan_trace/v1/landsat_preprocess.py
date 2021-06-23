@@ -315,6 +315,7 @@ def calc_NDII(ds):
 
     return ds
 
+
 def find_months_of_interest(row):
     '''
     Grab the growing season months based upon the
@@ -328,7 +329,8 @@ def find_months_of_interest(row):
         return ['12', '01', '02']
     else:
         # tropics
-        return [f'{month:02}' for month in np.arange(1,13)]
+        return [f'{month:02}' for month in np.arange(1, 13)]
+
 
 def make_datestamps(months, year):
     '''
@@ -340,12 +342,13 @@ def make_datestamps(months, year):
     include landsat scenes from jan/feb 2004.
     '''
     years = []
-    for month in month_keys: 
+    for month in month_keys:
         if int(month) < 3:
-            years.append(year+1)
+            years.append(year + 1)
         else:
             years.append(year)
     return ['{}{}'.format(year, month) for (year, month) in zip(years, months)]
+
 
 def scene_seasonal_average(
     path,
