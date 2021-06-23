@@ -236,7 +236,6 @@ def preprocess(ds, min_lat, max_lat, min_lon, max_lon):
 
     # stack the record index and shot number together so we have a ~1D tabular data structure
     ds = ds.stack(unique_index=("record_index", "shot_number"))
-    # is this step increasing memory usage?? do it in a for loop
 
     # apply filtering
     mask = get_mask(ds)
