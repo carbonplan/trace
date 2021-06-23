@@ -200,8 +200,8 @@ def access_credentials():
 
     with open('/home/jovyan/.aws/credentials') as f:
         credentials = f.read().splitlines()
-        access_key_id = credentials[1].split('=')[1]
-        secret_access_key = credentials[2].split('=')[1]
+        access_key_id = credentials[1].split('=')[1].strip()
+        secret_access_key = credentials[2].split('=')[1].strip()
     return access_key_id, secret_access_key
 
 

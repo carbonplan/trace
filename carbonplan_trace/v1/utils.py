@@ -75,7 +75,8 @@ def open_glah01_data():
         if not f.endswith('/')
     ]
     ds_list = [open_zarr_file(uri) for uri in uris]
-    ds = xr.concat(ds_list, dim='record_index').chunk({'record_index': 2000})
+    ds = xr.concat(ds_list, dim='record_index').chunk({'record_index': 500})
+    # try changing this 
     for k in ds:
         _ = ds[k].encoding.pop('chunks', None)
     return ds
