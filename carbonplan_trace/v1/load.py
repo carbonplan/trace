@@ -146,6 +146,6 @@ def biomass(tiles, year):
             complete_df = pd.concat([complete_df, df], axis=0)
         else:
             complete_df = df
-    
+
     complete_df = complete_df[complete_df.datetime.dt.year == year]
     return complete_df

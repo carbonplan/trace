@@ -341,12 +341,7 @@ def make_datestamps(months, year):
     i.e. calculation of biomass for 2003 in the southern hemisphere will
     include landsat scenes from jan/feb 2004.
     '''
-    years = []
-    for month in month_keys:
-        if int(month) < 3:
-            years.append(year + 1)
-        else:
-            years.append(year)
+    years = [year + 1 if int(month) < 3 else year for month in months]
     return ['{}{}'.format(year, month) for (year, month) in zip(years, months)]
 
 
