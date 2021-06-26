@@ -9,6 +9,7 @@ import utm
 import xarray as xr
 from gcsfs import GCSFileSystem
 from pyproj import Transformer
+from s3fs import S3FileSystem
 
 
 def save_to_zarr(ds, url, list_of_variables=None, mode='w', append_dim=None):
