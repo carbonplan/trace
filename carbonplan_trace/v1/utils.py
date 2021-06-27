@@ -69,7 +69,7 @@ def open_glah14_data(do_convert_long3_to_long1=True):
 
 
 def open_glah01_data():
-    fs = GCSFileSystem(cache_timeout=0)
+    fs = S3FileSystem()
     uris = [
         f's3://{f}'
         for f in fs.ls('s3://carbonplan-climatetrace/intermediate/glah01/')
