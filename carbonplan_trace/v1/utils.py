@@ -7,7 +7,6 @@ import fsspec
 import numpy as np
 import utm
 import xarray as xr
-from gcsfs import GCSFileSystem
 from pyproj import Transformer
 from s3fs import S3FileSystem
 
