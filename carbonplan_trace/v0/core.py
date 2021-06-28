@@ -51,7 +51,7 @@ def compute_grid_area(da):
     return areacella / SQM_PER_HA
 
 
-def coarsen_emissions(ds, factor=100):
+def coarsen_emissions(ds, mask_var='emissions', factor=100):
     """
     Coarsen emissions by the provided factor
 
@@ -67,7 +67,7 @@ def coarsen_emissions(ds, factor=100):
     ds : xarray.Dataset
         DataArray with grid cell areas in square meters
     """
-    da_mask = ds['emissions_from_clearing']
+    da_mask = ds[mask_var]
     if 'year' in ds.dims:
         da_mask = da_mask.isel(year=0, drop=True)
 
