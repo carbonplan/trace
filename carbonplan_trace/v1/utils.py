@@ -52,7 +52,7 @@ def convert_long3_to_long1(long3):
     return long1
 
 
-def open_zarr_file(uri, file_system='s3'):
+def open_zarr_file(uri, file_system='gs'):
     if not uri.startswith(f'{file_system}://'):
         uri = f'{file_system}://{uri}'
     mapper = fsspec.get_mapper(uri)
@@ -87,7 +87,7 @@ def open_and_combine_lat_lon_data(folder, tiles=None, lat_lon_box=None):
     If tiles is none, load all data available
     If no file is available, return None
     """
-    fs = S3FileSystem()
+    fs = GCSFileSystem(cache_timeout=0)
 
     if not tiles:
         tiles = [
@@ -146,7 +146,7 @@ def open_igbp_data(tiles=None, lat_lon_box=None):
     Load igbp data stored as 10x10 degree tiles
     If tiles is none, load all data available
     """
-    folder = 's3://carbonplan-climatetrace/intermediate/igbp/'
+    folder = 'gs://carbonplan-climatetrace/intermediates/igbp/'
 
     return open_and_combine_lat_lon_data(folder, tiles, lat_lon_box=lat_lon_box)
 
@@ -267,8 +267,8 @@ def find_tiles_for_bounding_box(min_lat, max_lat, min_lon, max_lon):
     the tile names are in the format of {lat}_{lon} where lat, lon represent the upper left corner
     ocean tiles are removed
     """
-    fs = S3FileSystem()
-    folder = 's3://carbonplan-climatetrace/intermediate/ecoregions_mask/'
+    fs = GCSFileSystem(cache_timeout=0)
+    folder = 'gs://carbonplan-climatetrace/intermediates/ecoregions_mask/'
     available_tiles = [
         os.path.splitext(os.path.split(path)[-1])[0]
         for path in fs.ls(folder)
