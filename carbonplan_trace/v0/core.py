@@ -20,13 +20,12 @@ def calc_emissions(ds, y0=2001, y1=2020):
     emissions : xarray.DataArray
         Timeseries (for the full record) of emissions due to forest tree cover disturbance.
     """
-    years = xr.DataArray(range(y0, y1 + 1), dims=("year",), name="year")
-    loss_frac = []
-    for year in years:
-        loss_frac.append(xr.where((ds["lossyear"] == year), ds["treecover2000"], 0))
-    ds["d_treecover"] = xr.concat(loss_frac, dim=years)
+    years = xr.DataArray(np.arange(y0, y1 + 1), dims=("year",), name="year")
+    tree_loss = xr.concat(
+        [xr.where((ds["lossyear"] == year), 1.0, 0.0) for year in years], dim=years
+    )
 
-    return ds["agb"] * ds["d_treecover"] * TC_PER_TBM * TC02_PER_TC
+    return ds["agb"] * tree_loss * TC_PER_TBM * TC02_PER_TC
 
 
 def compute_grid_area(da):
@@ -52,7 +51,7 @@ def compute_grid_area(da):
     return areacella / SQM_PER_HA
 
 
-def coarsen_emissions(ds, factor=100):
+def coarsen_emissions(ds, mask_var='emissions', factor=100):
     """
     Coarsen emissions by the provided factor
 
@@ -68,7 +67,7 @@ def coarsen_emissions(ds, factor=100):
     ds : xarray.Dataset
         DataArray with grid cell areas in square meters
     """
-    da_mask = ds['emissions_from_clearing']
+    da_mask = ds[mask_var]
     if 'year' in ds.dims:
         da_mask = da_mask.isel(year=0, drop=True)
 
