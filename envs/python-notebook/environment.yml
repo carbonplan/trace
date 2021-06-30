@@ -9,12 +9,14 @@ dependencies:
   - cartopy
   - code-server
   - cython
+  - datashader
   - fastparquet
   - gcsfs
   - gdal
   - geopandas
   - h5py
   - h5netcdf
+  - holoviews
   - intake
   - intake-geopandas
   - intake-parquet

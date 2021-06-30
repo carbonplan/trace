@@ -1,4 +1,5 @@
 processed/
+WORKING*
 dask-worker-space/
 tmp/
 .DS_Store

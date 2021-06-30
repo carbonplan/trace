@@ -7,8 +7,8 @@ import fsspec
 import numpy as np
 import utm
 import xarray as xr
-from gcsfs import GCSFileSystem
 from pyproj import Transformer
+from s3fs import S3FileSystem
 
 
 def save_to_zarr(ds, url, list_of_variables=None, mode='w', append_dim=None):
@@ -68,7 +68,7 @@ def open_glah14_data(do_convert_long3_to_long1=True):
 
 
 def open_glah01_data():
-    fs = GCSFileSystem(cache_timeout=0)
+    fs = S3FileSystem()
     uris = [
         f's3://{f}'
         for f in fs.ls('s3://carbonplan-climatetrace/intermediate/glah01/')
