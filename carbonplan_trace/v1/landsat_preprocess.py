@@ -226,7 +226,7 @@ def grab_scene_coord_info(metadata):
             float(metadata[f'CORNER_{corner}_PROJECTION_X_PRODUCT']),
             float(metadata[f'CORNER_{corner}_PROJECTION_Y_PRODUCT']),
         )
-        corner_coords = (
+        corner_coords[corner] = (
             float(metadata[f'CORNER_{corner}_LON_PRODUCT']),
             float(metadata[f'CORNER_{corner}_LAT_PRODUCT']),
         )
@@ -263,7 +263,7 @@ def get_scene_utm_info(url, json_client):
 
     if spans_utm_border(lats):
         utm_zone_letter = verify_projection(
-            upper_right_corner_coords, upper_right_corner_proj, int(utm_zone)
+            corner_coords, corner_proj, int(utm_zone)
         )
             
     else:
