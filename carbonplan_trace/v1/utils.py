@@ -327,13 +327,20 @@ def verify_projection(coords, projected, zone_number):
     If they do, grab a letter. If not, grab the other letter (and
     confirm that it also works?)
     '''
-    # test out for a given coordinate
-    (test_x, test_y, calculated_zone_number, calculated_zone_letter) = utm.from_latlon(
-        coords[1], coords[0], force_zone_number=zone_number
-    )
     tolerance = 2  # in meters - should really be within 0.5 meters
-    # These will fail if the test latlon-->meters projection was off by more than
-    # 2 meters from the values provided in the metadata
-    assert abs(test_x - projected[0]) < tolerance
-    assert abs(test_y - projected[1]) < tolerance
-    return calculated_zone_letter
+
+    for corner in ['UR', 'LL', 'UL', 'LR']:
+        # test out for a given coordinate
+        (test_x, test_y, calculated_zone_number, calculated_zone_letter) = utm.from_latlon(
+            coords[corner][1], coords[corner][0], force_zone_number=zone_number
+        )
+        # These will fail if the test latlon-->meters projection was off by more than
+        # 2 meters from the values provided in the metadata
+        try:
+            assert abs(test_x - projected[corner][0]) < tolerance
+            assert abs(test_y - projected[corner][1]) < tolerance
+            return calculated_zone_letter
+        except AssertionError:
+            continue
+
+    raise Exception('None of the UTM projections match with scene metadata')
