@@ -378,6 +378,7 @@ def scene_seasonal_average(
     if bands_of_interest == 'all':
         bands_of_interest = ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7']
     scene_stores = fs.ls(landsat_bucket.format(year, path, row))
+
     datestamps = make_datestamps(months, year)
     for scene_store in scene_stores:
         for datestamp in datestamps:
