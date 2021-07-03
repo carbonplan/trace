@@ -217,15 +217,20 @@ def grab_scene_coord_info(metadata):
         'CORNER_UR_LAT_PRODUCT',
     ]:
         lats.append(float(metadata[key]))
-    upper_right_corner_proj = (
-        float(metadata['CORNER_UR_PROJECTION_X_PRODUCT']),
-        float(metadata['CORNER_UR_PROJECTION_Y_PRODUCT']),
-    )
-    upper_right_corner_coords = (
-        float(metadata['CORNER_UR_LON_PRODUCT']),
-        float(metadata['CORNER_UR_LAT_PRODUCT']),
-    )
-    return lats, upper_right_corner_proj, upper_right_corner_coords
+
+    corner_proj = {}
+    corner_coords = {}
+    corners = ['UR', 'LL', 'UL', 'LR']
+    for corner in corners:
+        corner_proj[corner] = (
+            float(metadata[f'CORNER_{corner}_PROJECTION_X_PRODUCT']),
+            float(metadata[f'CORNER_{corner}_PROJECTION_Y_PRODUCT']),
+        )
+        corner_coords[corner] = (
+            float(metadata[f'CORNER_{corner}_LON_PRODUCT']),
+            float(metadata[f'CORNER_{corner}_LAT_PRODUCT']),
+        )
+    return lats, corner_proj, corner_coords
 
 
 def get_scene_utm_info(url, json_client):
@@ -252,18 +257,18 @@ def get_scene_utm_info(url, json_client):
     metadata = json.loads(data['Body'].read())
     utm_zone = metadata['LANDSAT_METADATA_FILE']['PROJECTION_ATTRIBUTES']['UTM_ZONE']
 
-    lats, upper_right_corner_proj, upper_right_corner_coords = grab_scene_coord_info(
+    lats, corner_proj, corner_coords = grab_scene_coord_info(
         metadata['LANDSAT_METADATA_FILE']['PROJECTION_ATTRIBUTES']
     )
 
     if spans_utm_border(lats):
-        utm_zone_letter = verify_projection(
-            upper_right_corner_coords, upper_right_corner_proj, int(utm_zone)
-        )
+        utm_zone_letter = verify_projection(corner_coords, corner_proj, int(utm_zone))
+
     else:
+        # use the upper right corner arbitrarily since the entire scene are in the same zone
         (_x, _y, calculated_zone_number, utm_zone_letter) = utm.from_latlon(
-            upper_right_corner_coords[1],
-            upper_right_corner_coords[0],
+            corner_coords['UR'][1],
+            corner_coords['UR'][0],
             force_zone_number=int(utm_zone),
         )
     return utm_zone, utm_zone_letter
