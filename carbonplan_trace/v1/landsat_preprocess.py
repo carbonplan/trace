@@ -262,10 +262,8 @@ def get_scene_utm_info(url, json_client):
     )
 
     if spans_utm_border(lats):
-        utm_zone_letter = verify_projection(
-            corner_coords, corner_proj, int(utm_zone)
-        )
-            
+        utm_zone_letter = verify_projection(corner_coords, corner_proj, int(utm_zone))
+
     else:
         # use the upper right corner arbitrarily since the entire scene are in the same zone
         (_x, _y, calculated_zone_number, utm_zone_letter) = utm.from_latlon(
