@@ -336,7 +336,7 @@ def verify_projection(coords, projected, zone_number):
             coords[corner][1], coords[corner][0], force_zone_number=zone_number
         )
         if coords[corner][1] < 0 and abs(test_y - projected[corner][1]) > tolerance:
-            # this line is implemented in response to 
+            # this line is implemented in response to
             # https://github.com/Turbo87/utm/blob/40eb34c86895bf3a5f97b5819b9da4b164151d3c/utm/conversion.py#L283-L284
             # without it some areas get a 10M difference in northing/y
             test_y -= 10000000
