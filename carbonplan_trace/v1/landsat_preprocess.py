@@ -208,19 +208,10 @@ def grab_scene_coord_info(metadata):
     '''
     Grab latitude values for scene corners.
     '''
-
+    corners = ['UR', 'LL', 'UL', 'LR']
     lats = []
-    for key in [
-        'CORNER_LL_LAT_PRODUCT',
-        'CORNER_LR_LAT_PRODUCT',
-        'CORNER_UL_LAT_PRODUCT',
-        'CORNER_UR_LAT_PRODUCT',
-    ]:
-        lats.append(float(metadata[key]))
-
     corner_proj = {}
     corner_coords = {}
-    corners = ['UR', 'LL', 'UL', 'LR']
     for corner in corners:
         corner_proj[corner] = (
             float(metadata[f'CORNER_{corner}_PROJECTION_X_PRODUCT']),
@@ -230,6 +221,7 @@ def grab_scene_coord_info(metadata):
             float(metadata[f'CORNER_{corner}_LON_PRODUCT']),
             float(metadata[f'CORNER_{corner}_LAT_PRODUCT']),
         )
+        lats.append(float(metadata[f'CORNER_{corner}_LAT_PRODUCT']))
     return lats, corner_proj, corner_coords
 
 
