@@ -110,7 +110,8 @@ def open_and_combine_lat_lon_data(folder, tiles=None, lat_lon_box=None):
                 [min_lat, max_lat, min_lon, max_lon] = lat_lon_box
                 da = da.sel(lat=slice(min_lat, max_lat), lon=slice(min_lon, max_lon))
 
-            ds_list.append(da)
+            if da.dims['lat'] > 0 and da.dims['lon'] > 0:
+                ds_list.append(da)
     if len(ds_list) > 0:
         ds = xr.combine_by_coords(ds_list, combine_attrs="drop_conflicts").chunk(
             {'lat': 2000, 'lon': 2000}
@@ -334,6 +335,11 @@ def verify_projection(coords, projected, zone_number):
         (test_x, test_y, calculated_zone_number, calculated_zone_letter) = utm.from_latlon(
             coords[corner][1], coords[corner][0], force_zone_number=zone_number
         )
+        if coords[corner][1] < 0 and abs(test_y - projected[corner][1]) > tolerance:
+            # this line is implemented in response to
+            # https://github.com/Turbo87/utm/blob/40eb34c86895bf3a5f97b5819b9da4b164151d3c/utm/conversion.py#L283-L284
+            # without it some areas get a 10M difference in northing/y
+            test_y -= 10000000
         # These will fail if the test latlon-->meters projection was off by more than
         # 2 meters from the values provided in the metadata
         try:
