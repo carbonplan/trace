@@ -105,19 +105,16 @@ def open_and_combine_lat_lon_data(folder, tiles=None, lat_lon_box=None):
                 da = da.reindex(lat=da.lat[::-1])
             if da.lon[0] > da.lon[-1]:
                 da = da.reindex(lat=da.lon[::-1])
-
-            if lat_lon_box is not None:
-                [min_lat, max_lat, min_lon, max_lon] = lat_lon_box
-                da = da.sel(lat=slice(min_lat, max_lat), lon=slice(min_lon, max_lon))
-
-            if da.dims['lat'] > 0 and da.dims['lon'] > 0:
-                ds_list.append(da)
+            ds_list.append(da)
     if len(ds_list) > 0:
-        ds = xr.combine_by_coords(ds_list, combine_attrs="drop_conflicts").chunk(
-            {'lat': 2000, 'lon': 2000}
-        )
-        return ds
-    # print(f'No data available at {folder} for tiles {tiles}')
+        ds = xr.combine_by_coords(ds_list, combine_attrs="drop_conflicts")
+        if lat_lon_box is not None:
+            [min_lat, max_lat, min_lon, max_lon] = lat_lon_box
+            ds = ds.sel(lat=slice(min_lat, max_lat), lon=slice(min_lon, max_lon))
+
+        if ds.dims['lat'] > 0 and ds.dims['lon'] > 0:
+            return ds.chunk({'lat': 2000, 'lon': 2000})
+
     return None
 
 
