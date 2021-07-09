@@ -40,6 +40,7 @@ def prep_training_dataset(
     secret_access_key,
     training_write_bucket=None,
     bands_of_interest='all',
+    error='raise',
 ):
     core_session = boto3.Session(
         aws_access_key_id=access_key_id,
@@ -53,36 +54,43 @@ def prep_training_dataset(
     ):  # this? **** #threads #single-threaded # threads??
         with rio.Env(aws_session):
             # create the landsat scene for that year
-            landsat_ds = scene_seasonal_average(
-                path=path,
-                row=row,
-                year=year,
-                access_key_id=access_key_id,
-                secret_access_key=secret_access_key,
-                aws_session=aws_session,
-                core_session=core_session,
-                fs=fs,
-                bands_of_interest=bands_of_interest,
-                landsat_generation='landsat-7',
-            )
-            # reproject from utm to lat/lon
-            landsat_zone = landsat_ds.utm_zone_number + landsat_ds.utm_zone_letter
-            data, tiles, bounding_box = reproject_dataset_to_fourthousandth_grid(
-                landsat_ds, zone=landsat_zone
-            )
-            del landsat_ds
-            # add in other datasets
-            data = add_aster_worldclim(data, tiles, lat_lon_box=bounding_box).load()
-
-            # here we take it to dataframe and add in realm information
-            df = create_combined_landsat_biomass_df(data, tiles, year)
-            del data
-            # according to realm, save to the correct bucket
-            for realm, sub in df.groupby('realm'):
-                output_filepath = (
-                    f'{training_write_bucket}/{realm}/{year}/{path:03d}{row:03d}.parquet'
+            try:
+                landsat_ds = scene_seasonal_average(
+                    path=path,
+                    row=row,
+                    year=year,
+                    access_key_id=access_key_id,
+                    secret_access_key=secret_access_key,
+                    aws_session=aws_session,
+                    core_session=core_session,
+                    fs=fs,
+                    bands_of_interest=bands_of_interest,
+                    landsat_generation='landsat-7',
                 )
-                utils.write_parquet(df, output_filepath, access_key_id, secret_access_key)
+                # reproject from utm to lat/lon
+                landsat_zone = landsat_ds.utm_zone_number + landsat_ds.utm_zone_letter
+                data, tiles, bounding_box = reproject_dataset_to_fourthousandth_grid(
+                    landsat_ds, zone=landsat_zone
+                )
+                del landsat_ds
+                # add in other datasets
+                data = add_aster_worldclim(data, tiles, lat_lon_box=bounding_box).load()
+
+                # here we take it to dataframe and add in realm information
+                df = create_combined_landsat_biomass_df(data, tiles, year)
+                del data
+                # according to realm, save to the correct bucket
+                for realm, sub in df.groupby('realm'):
+                    output_filepath = (
+                        f'{training_write_bucket}/{realm}/{year}/{path:03d}{row:03d}.parquet'
+                    )
+                    utils.write_parquet(df, output_filepath, access_key_id, secret_access_key)
+                return ('pass', output_filepath)
+            except Exception as e:
+                if error == 'raise':
+                    raise e
+                else:
+                    return ('error', output_filepath, e)
 
 
 prep_training_dataset_delayed = dask.delayed(prep_training_dataset)
