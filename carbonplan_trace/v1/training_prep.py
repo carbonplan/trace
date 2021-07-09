@@ -130,7 +130,6 @@ def create_combined_landsat_biomass_df(data, tiles, year):
 
     # remove any values that got masked - we might want to do some tolerance here
     df = df.dropna(how='any')
-    print(len(df))
     return df
 
 
