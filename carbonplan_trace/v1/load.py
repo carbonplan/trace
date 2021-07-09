@@ -1,6 +1,7 @@
 from datetime import datetime
 
 import fsspec
+import numpy as np
 import pandas as pd
 import xarray as xr
 from s3fs import S3FileSystem
@@ -38,20 +39,27 @@ WORLDCLIM_SCALING_FACTORS = {
 
 def aster(ds, tiles, lat_lon_box=None, dtype='int16'):
     '''
-    Note: ds must have coordinates as lat/lon and not x/y (have different names)
-    otherwise the coordinates will not be turned into
+    Note: ds must have coordinates as x/y and not lon/lat (have different names)
+    otherwise the coordinates in the selection
     '''
     print('tiles', tiles)
     print('lat_lon_box', lat_lon_box)
+    print(ds)
     full_aster = utils.open_and_combine_lat_lon_data(
         "s3://carbonplan-climatetrace/intermediate/aster/", tiles=tiles, lat_lon_box=lat_lon_box
     )
-    selected_aster = (
-        utils.find_matching_records(full_aster, lats=ds.y, lons=ds.x, dtype=dtype)
-        .load()
-        .drop(['spatial_ref'])
-    )
-    return xr.merge([ds, selected_aster])
+    if full_aster is not None:
+        selected_aster = (
+            utils.find_matching_records(full_aster, lats=ds.y, lons=ds.x, dtype=dtype)
+            .load()
+            .drop(['spatial_ref'])
+        )
+        return xr.merge([ds, selected_aster])
+    else:
+        empty_da = xr.DataArray(np.nan, dims=['x', 'y'], coords=[ds.coords['x'], ds.coords['y']])
+        for v in ['elev', 'slope', 'aspect']:
+            ds[v] = empty_da
+        return ds
 
 
 def worldclim(ds, dtype='int16'):
