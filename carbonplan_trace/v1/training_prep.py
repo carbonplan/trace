@@ -67,26 +67,24 @@ def prep_training_dataset(
                     bands_of_interest=bands_of_interest,
                     landsat_generation='landsat-7',
                 )
-                # reproject from utm to lat/lon
-                landsat_zone = landsat_ds.utm_zone_number + landsat_ds.utm_zone_letter
-                data, tiles, bounding_box = reproject_dataset_to_fourthousandth_grid(
-                    landsat_ds, zone=landsat_zone
-                )
-                del landsat_ds
-                # add in other datasets
-                data = add_aster_worldclim(data, tiles, lat_lon_box=bounding_box).load()
-
-                # here we take it to dataframe and add in realm information
-                df = create_combined_landsat_biomass_df(data, tiles, year)
-                print('length of data', len(df))
-                del data
-                # according to realm, save to the correct bucket
-                for realm, sub in df.groupby('realm'):
-                    output_filepath = (
-                        f'{training_write_bucket}/{realm}/{year}/{path:03d}{row:03d}.parquet'
+                if landsat_ds:
+                    # reproject from utm to lat/lon
+                    landsat_zone = landsat_ds.utm_zone_number + landsat_ds.utm_zone_letter
+                    data, tiles, bounding_box = reproject_dataset_to_fourthousandth_grid(
+                        landsat_ds, zone=landsat_zone
                     )
-                    print(output_filepath)
-                    utils.write_parquet(sub, output_filepath, access_key_id, secret_access_key)
+                    del landsat_ds
+                    # add in other datasets
+                    data = add_aster_worldclim(data, tiles, lat_lon_box=bounding_box).load()
+
+                    # here we take it to dataframe and add in realm information
+                    df = create_combined_landsat_biomass_df(data, tiles, year)
+                    del data
+                else:
+                    df = pd.DataFrame({})
+                print('length of data', len(df))
+
+                # according to realm, save to the correct bucket
                 if len(df) == 0:
                     output_filepath = (
                         f'{training_write_bucket}/no_data/{year}/{path:03d}{row:03d}.parquet'
@@ -94,7 +92,16 @@ def prep_training_dataset(
                     print(output_filepath)
                     mock = pd.DataFrame({'no_data': [1]})
                     utils.write_parquet(mock, output_filepath, access_key_id, secret_access_key)
+                else:
+                    for realm, sub in df.groupby('realm'):
+                        output_filepath = (
+                            f'{training_write_bucket}/{realm}/{year}/{path:03d}{row:03d}.parquet'
+                        )
+                        print(output_filepath)
+                        utils.write_parquet(sub, output_filepath, access_key_id, secret_access_key)
+
                 return ('pass', f'{year}/{path:03d}{row:03d}')
+
             except Exception as e:
                 if error == 'raise':
                     raise e
