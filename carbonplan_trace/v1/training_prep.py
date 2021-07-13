@@ -10,8 +10,6 @@ import numpy as np
 import pandas as pd
 import rasterio as rio
 import rioxarray  # for the extension to load
-import sys
-import traceback
 import utm
 import xarray as xr
 from pyproj import CRS
@@ -85,7 +83,7 @@ def prep_training_dataset(
                 else:
                     df = pd.DataFrame({})
                 print('length of data', len(df))
-                
+
                 # according to realm, save to the correct bucket
                 if len(df) == 0:
                     output_filepath = (
@@ -101,7 +99,7 @@ def prep_training_dataset(
                         )
                         print(output_filepath)
                         utils.write_parquet(sub, output_filepath, access_key_id, secret_access_key)
-                
+
                 return ('pass', f'{year}/{path:03d}{row:03d}')
 
             except Exception as e:

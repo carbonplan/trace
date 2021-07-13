@@ -396,9 +396,10 @@ def scene_seasonal_average(
             url = f'{write_bucket}{path}/{row}/{year}/growing_season_reflectance.zarr'
             mapper = fs.get_mapper(url)
             write_out(seasonal_average.chunk({'x': 1024, 'y': 1024}), mapper)
-        
+
         return seasonal_average.chunk({'x': 1024, 'y': 1024}).load()
     else:
         return None
+
 
 scene_seasonal_average_delayed = dask.delayed(scene_seasonal_average)
