@@ -23,7 +23,7 @@ from carbonplan_trace.v1.landsat_preprocess import scene_seasonal_average
 
 # flake8: noqa
 
-fs = S3FileSystem(profile='default', requester_pays=True)
+fs = S3FileSystem()
 
 
 def add_aster_worldclim(data, tiles, lat_lon_box=None):
