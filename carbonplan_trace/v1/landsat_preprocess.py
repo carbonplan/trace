@@ -388,16 +388,17 @@ def scene_seasonal_average(
         cloud_mask_url = url + '_SR_CLOUD_QA.TIF'
         cog_mask = cloud_qa(cloud_mask_url)
         ds_list.append(grab_ds(url, bands_of_interest, cog_mask, utm_zone, utm_letter))
-    seasonal_average = average_stack_of_scenes(ds_list)
-    del ds_list
-    if write_bucket is not None:
-        # set where you'll save the final seasonal average
-        url = f'{write_bucket}{path}/{row}/{year}/growing_season_reflectance.zarr'
-        mapper = fs.get_mapper(url)
-        write_out(seasonal_average.chunk({'x': 1024, 'y': 1024}), mapper)
+    if len(ds_list) > 0:
+        seasonal_average = average_stack_of_scenes(ds_list)
+        del ds_list
+        if write_bucket is not None:
+            # set where you'll save the final seasonal average
+            url = f'{write_bucket}{path}/{row}/{year}/growing_season_reflectance.zarr'
+            mapper = fs.get_mapper(url)
+            write_out(seasonal_average.chunk({'x': 1024, 'y': 1024}), mapper)
+        
         return seasonal_average.chunk({'x': 1024, 'y': 1024}).load()
     else:
-        return seasonal_average.chunk({'x': 1024, 'y': 1024}).load()
-
+        return None
 
 scene_seasonal_average_delayed = dask.delayed(scene_seasonal_average)

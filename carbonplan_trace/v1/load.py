@@ -13,7 +13,7 @@ from ..v1 import utils
 
 # flake8: noqa
 
-fs = S3FileSystem(requester_pays=True)
+fs = S3FileSystem()
 WORLDCLIM_SCALING_FACTORS = {
     'BIO01': 100,
     'BIO02': 100,
@@ -144,7 +144,7 @@ def biomass(tiles, year):
     '''
     complete_df = None
     for tile in tiles:
-        file_mapper = fs.get_mapper('carbonplan-climatetrace/v1/biomass/{}.zarr'.format(tile))
+        file_mapper = fs.get_mapper('s3://carbonplan-climatetrace/v1/biomass/{}.zarr'.format(tile))
 
         ds = xr.open_zarr(file_mapper, consolidated=True)
         df = ds.stack(unique_index=("record_index", "shot_number")).to_dataframe()
