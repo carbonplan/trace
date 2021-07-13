@@ -81,6 +81,88 @@ def open_glah01_data():
     return ds
 
 
+def align_coords_by_dim_groups(ds_list, dim):
+    """
+    Split ds in ds_list into groups along dimension dim, where ds are in the same group if there is 
+    any overlap (defined as the exact same coordinate value) between the ds and the rest of the group. 
+    Then, align the coordinate values within each group by reindexing each ds in a group with the union
+    of all ds within that group. 
+
+    As an example, two ds spanning lat 0-5 and 2-7 would be in the same group along dim=lat, and will be 
+    re-indexed to 0-7. A ds spanning lat 10-15 would be in a separate group. Output is a flattened list 
+    from all groups. 
+
+    Examples 
+    --------
+    x1 = xr.Dataset(
+        {
+            "temp": (("y", "x"), np.zeros((2,3))),
+        },
+        coords={"y": [2, 3], "x": [40, 50, 60]}
+    )
+    x2 = xr.Dataset(
+        {
+            "temp": (("y", "x"), np.zeros((3,3))),
+        },
+        coords={"y": [1, 2, 3], "x": [10, 20, 30]}
+    )
+    x3 = xr.Dataset(
+        {
+            "temp": (("y", "x"), np.zeros((3,2))),
+        },
+        coords={"y": [4, 5, 6], "x": [20, 30]}
+    )
+    x4 = xr.Dataset(
+        {
+            "temp": (("y", "x"), np.zeros((2,2))),
+        },
+        coords={"y": [5, 6], "x": [50, 60]}
+    )
+
+    ds_list = [x1, x2, x3, x4]
+    for dim in ['x', 'y']:
+        ds_list = align_coords_by_dim_groups(ds_list, dim)
+
+    x = xr.combine_by_coords(ds_list)
+    print(x.temp)
+
+    <xarray.DataArray 'temp' (y: 6, x: 6)>
+    array([[ 0.,  0.,  0., nan, nan, nan],
+        [ 0.,  0.,  0.,  0.,  0.,  0.],
+        [ 0.,  0.,  0.,  0.,  0.,  0.],
+        [nan,  0.,  0., nan, nan, nan],
+        [nan,  0.,  0., nan,  0.,  0.],
+        [nan,  0.,  0., nan,  0.,  0.]])
+    Coordinates:
+    * y        (y) int64 1 2 3 4 5 6
+    * x        (x) int64 10 20 30 40 50 60
+    """
+    # initiate the groups list and the union index list with the first element 
+    groups = [[ds_list[0]]]
+    union_indexes = [set(ds_list[0].coords[dim].values)]
+    for ds in ds_list[1:]:
+        found = False
+        ds_index = set(ds.coords[dim].values)
+        for i, index in enumerate(union_indexes):
+            # if there is any overlap between this element and the one alraedy in the group, add to the group
+            if len(ds_index.intersection(index)) > 0:
+                groups[i].append(ds)
+                union_indexes[i] = ds_index.union(index)
+                found = True
+                break 
+        # else start a new group 
+        if not found:
+            groups.append([ds])
+            union_indexes.append(set(ds.coords[dim].values))
+    
+    out = []
+    for group, union_index in zip(groups, union_indexes):
+        for ds in group:
+            out.append(ds.reindex({dim: sorted(union_index)}))
+    
+    return out
+
+
 def open_and_combine_lat_lon_data(folder, tiles=None, lat_lon_box=None):
     """
     Load lat lon data stored as 10x10 degree tiles in folder
@@ -101,19 +183,27 @@ def open_and_combine_lat_lon_data(folder, tiles=None, lat_lon_box=None):
     for uri in uris:
         if fs.exists(uri):
             da = open_zarr_file(uri)
+            # sort lat/lon
             if da.lat[0] > da.lat[-1]:
                 da = da.reindex(lat=da.lat[::-1])
             if da.lon[0] > da.lon[-1]:
                 da = da.reindex(lat=da.lon[::-1])
-            ds_list.append(da)
-    if len(ds_list) > 0:
-        ds = xr.combine_by_coords(ds_list, combine_attrs="drop_conflicts")
-        if lat_lon_box is not None:
-            [min_lat, max_lat, min_lon, max_lon] = lat_lon_box
-            ds = ds.sel(lat=slice(min_lat, max_lat), lon=slice(min_lon, max_lon))
+            # drop extra dimensions
+            if 'spatial_ref' in da:
+                da = da.drop_vars('spatial_ref')
+            # crop to lat/lon box to save on memory 
+            if lat_lon_box is not None:
+                [min_lat, max_lat, min_lon, max_lon] = lat_lon_box
+                da = da.sel(lat=slice(min_lat, max_lat), lon=slice(min_lon, max_lon))
+            if da.dims['lat'] > 0 and da.dims['lon'] > 0:
+                ds_list.append(da)
 
-        if ds.dims['lat'] > 0 and ds.dims['lon'] > 0:
-            return ds.chunk({'lat': 2000, 'lon': 2000})
+    if len(ds_list) > 0:
+        for dim in ['lat', 'lon']:
+            ds_list = align_coords_by_dim_groups(ds_list, dim)
+
+        ds = xr.combine_by_coords(ds_list, combine_attrs="drop_conflicts")
+        return ds.chunk({'lat': 2000, 'lon': 2000})
 
     return None
 
