@@ -83,16 +83,16 @@ def open_glah01_data():
 
 def align_coords_by_dim_groups(ds_list, dim):
     """
-    Split ds in ds_list into groups along dimension dim, where ds are in the same group if there is 
-    any overlap (defined as the exact same coordinate value) between the ds and the rest of the group. 
+    Split ds in ds_list into groups along dimension dim, where ds are in the same group if there is
+    any overlap (defined as the exact same coordinate value) between the ds and the rest of the group.
     Then, align the coordinate values within each group by reindexing each ds in a group with the union
-    of all ds within that group. 
+    of all ds within that group.
 
-    As an example, two ds spanning lat 0-5 and 2-7 would be in the same group along dim=lat, and will be 
-    re-indexed to 0-7. A ds spanning lat 10-15 would be in a separate group. Output is a flattened list 
-    from all groups. 
+    As an example, two ds spanning lat 0-5 and 2-7 would be in the same group along dim=lat, and will be
+    re-indexed to 0-7. A ds spanning lat 10-15 would be in a separate group. Output is a flattened list
+    from all groups.
 
-    Examples 
+    Examples
     --------
     x1 = xr.Dataset(
         {
@@ -137,7 +137,7 @@ def align_coords_by_dim_groups(ds_list, dim):
     * y        (y) int64 1 2 3 4 5 6
     * x        (x) int64 10 20 30 40 50 60
     """
-    # initiate the groups list and the union index list with the first element 
+    # initiate the groups list and the union index list with the first element
     groups = [[ds_list[0]]]
     union_indexes = [set(ds_list[0].coords[dim].values)]
     for ds in ds_list[1:]:
@@ -149,17 +149,17 @@ def align_coords_by_dim_groups(ds_list, dim):
                 groups[i].append(ds)
                 union_indexes[i] = ds_index.union(index)
                 found = True
-                break 
-        # else start a new group 
+                break
+        # else start a new group
         if not found:
             groups.append([ds])
             union_indexes.append(set(ds.coords[dim].values))
-    
+
     out = []
     for group, union_index in zip(groups, union_indexes):
         for ds in group:
             out.append(ds.reindex({dim: sorted(union_index)}))
-    
+
     return out
 
 
@@ -191,7 +191,7 @@ def open_and_combine_lat_lon_data(folder, tiles=None, lat_lon_box=None):
             # drop extra dimensions
             if 'spatial_ref' in da:
                 da = da.drop_vars('spatial_ref')
-            # crop to lat/lon box to save on memory 
+            # crop to lat/lon box to save on memory
             if lat_lon_box is not None:
                 [min_lat, max_lat, min_lon, max_lon] = lat_lon_box
                 da = da.sel(lat=slice(min_lat, max_lat), lon=slice(min_lon, max_lon))
