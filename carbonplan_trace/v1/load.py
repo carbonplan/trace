@@ -42,6 +42,8 @@ def aster(ds, tiles, lat_lon_box=None, dtype='int16'):
     Note: ds must have coordinates as x/y and not lon/lat (have different names)
     otherwise the coordinates in the selection
     '''
+    print(tiles)
+    print(lat_lon_box)
     full_aster = utils.open_and_combine_lat_lon_data(
         "s3://carbonplan-climatetrace/intermediate/aster/", tiles=tiles, lat_lon_box=lat_lon_box
     )

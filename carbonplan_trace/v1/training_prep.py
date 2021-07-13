@@ -78,19 +78,28 @@ def prep_training_dataset(
 
                 # here we take it to dataframe and add in realm information
                 df = create_combined_landsat_biomass_df(data, tiles, year)
+                print('length of data', len(df))
                 del data
                 # according to realm, save to the correct bucket
                 for realm, sub in df.groupby('realm'):
                     output_filepath = (
                         f'{training_write_bucket}/{realm}/{year}/{path:03d}{row:03d}.parquet'
                     )
-                    utils.write_parquet(df, output_filepath, access_key_id, secret_access_key)
-                return ('pass', output_filepath)
+                    print(output_filepath)
+                    utils.write_parquet(sub, output_filepath, access_key_id, secret_access_key)
+                if len(df) == 0:
+                    output_filepath = (
+                        f'{training_write_bucket}/no_data/{year}/{path:03d}{row:03d}.parquet'
+                    )
+                    print(output_filepath)
+                    mock = pd.DataFrame({'no_data': [1]})
+                    utils.write_parquet(mock, output_filepath, access_key_id, secret_access_key)
+                return ('pass', f'{year}/{path:03d}{row:03d}')
             except Exception as e:
                 if error == 'raise':
                     raise e
                 else:
-                    return ('error', output_filepath, e)
+                    return ('error', f'{year}/{path:03d}{row:03d}', e)
 
 
 prep_training_dataset_delayed = dask.delayed(prep_training_dataset)
