@@ -1,6 +1,7 @@
 from datetime import datetime
 
 import fsspec
+import numpy as np
 import pandas as pd
 import xarray as xr
 from s3fs import S3FileSystem
@@ -12,7 +13,7 @@ from ..v1 import utils
 
 # flake8: noqa
 
-fs = S3FileSystem(requester_pays=True)
+fs = S3FileSystem()
 WORLDCLIM_SCALING_FACTORS = {
     'BIO01': 100,
     'BIO02': 100,
@@ -38,22 +39,30 @@ WORLDCLIM_SCALING_FACTORS = {
 
 def aster(ds, tiles, lat_lon_box=None, dtype='int16'):
     '''
-    Note: ds must have coordinates as lat/lon and not x/y (have different names)
-    otherwise the coordinates will not be turned into
+    Note: ds must have coordinates as x/y and not lon/lat (have different names)
+    otherwise the coordinates in the selection
     '''
+    print(tiles)
+    print(lat_lon_box)
     full_aster = utils.open_and_combine_lat_lon_data(
-        "gs://carbonplan-climatetrace/intermediates/aster/", tiles=tiles, lat_lon_box=lat_lon_box
+        "s3://carbonplan-climatetrace/intermediate/aster/", tiles=tiles, lat_lon_box=lat_lon_box
     )
-    selected_aster = (
-        utils.find_matching_records(full_aster, lats=ds.y, lons=ds.x, dtype=dtype)
-        .load()
-        .drop(['spatial_ref'])
-    )
-    return xr.merge([ds, selected_aster])
+    if full_aster is not None:
+        selected_aster = (
+            utils.find_matching_records(full_aster, lats=ds.y, lons=ds.x, dtype=dtype)
+            .load()
+            .drop(['spatial_ref'])
+        )
+        return xr.merge([ds, selected_aster])
+    else:
+        empty_da = xr.DataArray(np.nan, dims=['x', 'y'], coords=[ds.coords['x'], ds.coords['y']])
+        for v in ['elev', 'slope', 'aspect']:
+            ds[v] = empty_da
+        return ds
 
 
 def worldclim(ds, dtype='int16'):
-    mapper = fsspec.get_mapper(
+    mapper = fs.get_mapper(
         's3://carbonplan-climatetrace/v1/data/intermediates/annual_averaged_worldclim.zarr'
     )
     worldclim_ds = xr.open_zarr(mapper, consolidated=True).astype(dtype)
@@ -135,9 +144,7 @@ def biomass(tiles, year):
     '''
     complete_df = None
     for tile in tiles:
-        file_mapper = fs.get_mapper(
-            'carbonplan-climatetrace/v1/data/intermediates/biomass/{}.zarr'.format(tile)
-        )
+        file_mapper = fs.get_mapper('s3://carbonplan-climatetrace/v1/biomass/{}.zarr'.format(tile))
 
         ds = xr.open_zarr(file_mapper, consolidated=True)
         df = ds.stack(unique_index=("record_index", "shot_number")).to_dataframe()
@@ -146,6 +153,6 @@ def biomass(tiles, year):
             complete_df = pd.concat([complete_df, df], axis=0)
         else:
             complete_df = df
-
-    complete_df = complete_df[complete_df.datetime.dt.year == year]
+    complete_df['year'] = complete_df.apply(grab_year, axis=1)
+    complete_df = complete_df[complete_df['year'] == year]
     return complete_df

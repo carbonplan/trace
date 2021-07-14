@@ -54,7 +54,7 @@ def check_mins_maxes(ds):
 def create_target_grid(min_lat, max_lat, min_lon, max_lon):
     tiles = utils.find_tiles_for_bounding_box(min_lat, max_lat, min_lon, max_lon)
     full_target_ds = utils.open_and_combine_lat_lon_data(
-        'gs://carbonplan-climatetrace/intermediates/ecoregions_mask/',
+        's3://carbonplan-climatetrace/intermediate/ecoregions_mask/',
         tiles=tiles,
         lat_lon_box=[min_lat, max_lat, min_lon, max_lon],
     )
@@ -63,6 +63,7 @@ def create_target_grid(min_lat, max_lat, min_lon, max_lon):
     target = full_target_ds.sel(
         y=slice(min_lat - buffer, max_lat + buffer), x=slice(min_lon - buffer, max_lon + buffer)
     )
+    target.attrs["crs"] = "EPSG:4326"
     return target, tiles
 
 

@@ -208,24 +208,21 @@ def grab_scene_coord_info(metadata):
     '''
     Grab latitude values for scene corners.
     '''
-
+    corners = ['UR', 'LL', 'UL', 'LR']
     lats = []
-    for key in [
-        'CORNER_LL_LAT_PRODUCT',
-        'CORNER_LR_LAT_PRODUCT',
-        'CORNER_UL_LAT_PRODUCT',
-        'CORNER_UR_LAT_PRODUCT',
-    ]:
-        lats.append(float(metadata[key]))
-    upper_right_corner_proj = (
-        float(metadata['CORNER_UR_PROJECTION_X_PRODUCT']),
-        float(metadata['CORNER_UR_PROJECTION_Y_PRODUCT']),
-    )
-    upper_right_corner_coords = (
-        float(metadata['CORNER_UR_LON_PRODUCT']),
-        float(metadata['CORNER_UR_LAT_PRODUCT']),
-    )
-    return lats, upper_right_corner_proj, upper_right_corner_coords
+    corner_proj = {}
+    corner_coords = {}
+    for corner in corners:
+        corner_proj[corner] = (
+            float(metadata[f'CORNER_{corner}_PROJECTION_X_PRODUCT']),
+            float(metadata[f'CORNER_{corner}_PROJECTION_Y_PRODUCT']),
+        )
+        corner_coords[corner] = (
+            float(metadata[f'CORNER_{corner}_LON_PRODUCT']),
+            float(metadata[f'CORNER_{corner}_LAT_PRODUCT']),
+        )
+        lats.append(float(metadata[f'CORNER_{corner}_LAT_PRODUCT']))
+    return lats, corner_proj, corner_coords
 
 
 def get_scene_utm_info(url, json_client):
@@ -252,18 +249,18 @@ def get_scene_utm_info(url, json_client):
     metadata = json.loads(data['Body'].read())
     utm_zone = metadata['LANDSAT_METADATA_FILE']['PROJECTION_ATTRIBUTES']['UTM_ZONE']
 
-    lats, upper_right_corner_proj, upper_right_corner_coords = grab_scene_coord_info(
+    lats, corner_proj, corner_coords = grab_scene_coord_info(
         metadata['LANDSAT_METADATA_FILE']['PROJECTION_ATTRIBUTES']
     )
 
     if spans_utm_border(lats):
-        utm_zone_letter = verify_projection(
-            upper_right_corner_coords, upper_right_corner_proj, int(utm_zone)
-        )
+        utm_zone_letter = verify_projection(corner_coords, corner_proj, int(utm_zone))
+
     else:
+        # use the upper right corner arbitrarily since the entire scene are in the same zone
         (_x, _y, calculated_zone_number, utm_zone_letter) = utm.from_latlon(
-            upper_right_corner_coords[1],
-            upper_right_corner_coords[0],
+            corner_coords['UR'][1],
+            corner_coords['UR'][0],
             force_zone_number=int(utm_zone),
         )
     return utm_zone, utm_zone_letter
@@ -378,6 +375,7 @@ def scene_seasonal_average(
     if bands_of_interest == 'all':
         bands_of_interest = ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7']
     scene_stores = fs.ls(landsat_bucket.format(year, path, row))
+
     datestamps = make_datestamps(months, year)
     for scene_store in scene_stores:
         for datestamp in datestamps:
@@ -390,16 +388,18 @@ def scene_seasonal_average(
         cloud_mask_url = url + '_SR_CLOUD_QA.TIF'
         cog_mask = cloud_qa(cloud_mask_url)
         ds_list.append(grab_ds(url, bands_of_interest, cog_mask, utm_zone, utm_letter))
-    seasonal_average = average_stack_of_scenes(ds_list)
-    del ds_list
-    if write_bucket is not None:
-        # set where you'll save the final seasonal average
-        url = f'{write_bucket}{path}/{row}/{year}/growing_season_reflectance.zarr'
-        mapper = fs.get_mapper(url)
-        write_out(seasonal_average.chunk({'x': 1024, 'y': 1024}), mapper)
+    if len(ds_list) > 0:
+        seasonal_average = average_stack_of_scenes(ds_list)
+        del ds_list
+        if write_bucket is not None:
+            # set where you'll save the final seasonal average
+            url = f'{write_bucket}{path}/{row}/{year}/growing_season_reflectance.zarr'
+            mapper = fs.get_mapper(url)
+            write_out(seasonal_average.chunk({'x': 1024, 'y': 1024}), mapper)
+
         return seasonal_average.chunk({'x': 1024, 'y': 1024}).load()
     else:
-        return seasonal_average.chunk({'x': 1024, 'y': 1024}).load()
+        return None
 
 
 scene_seasonal_average_delayed = dask.delayed(scene_seasonal_average)
