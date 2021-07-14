@@ -16,7 +16,7 @@ from carbonplan_trace.utils import zarr_is_complete
 from carbonplan_trace.v0.core import calc_emissions, coarsen_emissions
 from carbonplan_trace.v0.data.load import open_hansen_change_tile
 
-skip_existing = True
+skip_existing = False
 tile_template = "s3://carbonplan-climatetrace/v0.4/tiles/30m/{tile_id}_{kind}.zarr"
 coarse_tile_template = "s3://carbonplan-climatetrace/v0.4/tiles/3000m/{tile_id}_{kind}.zarr"
 coarse_full_template = "s3://carbonplan-climatetrace/v0.4/global/3000m/raster_{kind}.zarr"
@@ -184,9 +184,6 @@ def rollup_shapes():
             columns = {k: names[int(k)] for k in df.columns}
             df = df.rename(columns=columns)
 
-            # convert to teragrams
-            df = df / 1e9
-
             # package in climate trace format
             df_out = df.stack().reset_index()
             df_out = df_out.sort_values(by=['region', 'year']).reset_index(drop=True)
@@ -206,7 +203,7 @@ def rollup_shapes():
 
 
 def main():
-    with Client(threads_per_worker=1, n_workers=12) as client:
+    with Client(threads_per_worker=1, n_workers=24) as client:
         print(client)
         print(client.dashboard_link)
 
