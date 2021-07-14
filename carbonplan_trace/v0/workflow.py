@@ -93,8 +93,15 @@ def process_one_tile(tile_id):
 
         # split out emissions from fire/clearing
         out = xr.Dataset()
-        out['emissions_from_clearing'] = tot_emissions['emissions'].where(~fire_da)
-        out['emissions_from_fire'] = tot_emissions['emissions'].where(fire_da)
+
+        # emissions occuring on the year of a fire or the year after a fire in the same pixel
+        # are marked as emissions from fire. note that we are limited by the start of the dataset
+        # and will miss the fires from years[0] - 1
+        fire_attribution = fire_da + fire_da.assign_coords(year=fire_da.year + 1).reindex(
+            year=fire_da.year, fill_value=0
+        )
+        out['emissions_from_clearing'] = tot_emissions['emissions'].where(~fire_attribution)
+        out['emissions_from_fire'] = tot_emissions['emissions'].where(fire_attribution)
         out.attrs.update(get_cf_global_attrs())
 
         print(out)
