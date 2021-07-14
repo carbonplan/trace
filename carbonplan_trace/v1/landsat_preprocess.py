@@ -147,14 +147,21 @@ def average_stack_of_scenes(ds_list):
     # less memory-intensive way of averaging
     full_ds = ds_list.pop().load()
     valid_pixel_count = valid_pixel_mask(full_ds)
+    # fill nulls with 0 so that it does not invalidate valid values from other ds 
+    full_ds = full_ds.fillna(0).load()
     while ds_list:
         ds = ds_list.pop().load()
-        full_ds += ds.compute()
         mask = valid_pixel_mask(ds).load()
+        full_ds += ds.fillna(0).compute()
         valid_pixel_count = (valid_pixel_count + mask).load()
         del mask
         del ds
     # divide by the number of active pixels to get your seasonal average
+    # if the number of valid pixel count is zero for a location, replace the numerator with nan to avoid 
+    # division by zero error 
+    print('full_ds', full_ds)
+    print('valid_pixel_count', valid_pixel_count)
+    full_ds = xr.where(valid_pixel_count == 0, np.nan, full_ds)
     full_ds = full_ds / valid_pixel_count
     del valid_pixel_count
 
