@@ -125,7 +125,7 @@ def create_combined_landsat_biomass_df(data, tiles, year, bounding_box):
     year : pandas dataframe
         the year from the landsat scene that you want to grab from biomass_df
     bounding_box: list
-        min_l
+        [min_lat, max_lat, min_lon, max_lon]
     Returns
     -------
     df : pandas dataframe
