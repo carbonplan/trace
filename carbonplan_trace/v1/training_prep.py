@@ -76,9 +76,8 @@ def prep_training_dataset(
                     del landsat_ds
                     # add in other datasets
                     data = add_aster_worldclim(data, tiles, lat_lon_box=bounding_box).load()
-
                     # here we take it to dataframe and add in realm information
-                    df = create_combined_landsat_biomass_df(data, tiles, year)
+                    df = create_combined_landsat_biomass_df(data, tiles, year, bounding_box)
                     del data
                 else:
                     df = pd.DataFrame({})
@@ -112,7 +111,7 @@ def prep_training_dataset(
 prep_training_dataset_delayed = dask.delayed(prep_training_dataset)
 
 
-def create_combined_landsat_biomass_df(data, tiles, year):
+def create_combined_landsat_biomass_df(data, tiles, year, bounding_box):
     '''
     Add landsat info for each biomass entry
 
@@ -125,6 +124,8 @@ def create_combined_landsat_biomass_df(data, tiles, year):
         landsat
     year : pandas dataframe
         the year from the landsat scene that you want to grab from biomass_df
+    bounding_box: list
+        [min_lat, max_lat, min_lon, max_lon]
     Returns
     -------
     df : pandas dataframe
@@ -136,6 +137,13 @@ def create_combined_landsat_biomass_df(data, tiles, year):
     # don't need to do the bounding box trimming because
     # it isn't spatial data (it's df)
     biomass_df = load.biomass(tiles, year)[biomass_variables]
+    min_lat, max_lat, min_lon, max_lon = bounding_box
+    biomass_df = biomass_df.loc[
+        (biomass_df.lat >= min_lat)
+        & (biomass_df.lat <= max_lat)
+        & (biomass_df.lon >= min_lon)
+        & (biomass_df.lon <= max_lon)
+    ]
     biomass_df['realm'] = biomass_df.ecoregion.apply(ECO_TO_REALM_MAP.__getitem__)
     # TODO CHECK THIS LINE!!
     df = (
