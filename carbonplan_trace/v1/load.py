@@ -34,6 +34,11 @@ WORLDCLIM_SCALING_FACTORS = {
     'BIO17': 1,
     'BIO18': 1,
     'BIO19': 1,
+    'tavg': 100,
+    'tmax': 100,
+    'tmin': 100,
+    'vapr': 100,
+    'wind': 100,
 }
 
 
@@ -42,8 +47,6 @@ def aster(ds, tiles, lat_lon_box=None, dtype='int16'):
     Note: ds must have coordinates as x/y and not lon/lat (have different names)
     otherwise the coordinates in the selection
     '''
-    print(tiles)
-    print(lat_lon_box)
     full_aster = utils.open_and_combine_lat_lon_data(
         "s3://carbonplan-climatetrace/intermediate/aster/", tiles=tiles, lat_lon_box=lat_lon_box
     )
@@ -65,7 +68,7 @@ def worldclim(ds, dtype='int16'):
     mapper = fs.get_mapper(
         's3://carbonplan-climatetrace/v1/data/intermediates/annual_averaged_worldclim.zarr'
     )
-    worldclim_ds = xr.open_zarr(mapper, consolidated=True).astype(dtype)
+    worldclim_ds = xr.open_zarr(mapper, consolidated=True)
     worldclim_subset = worldclim_ds.sel(
         lon=slice(float(ds.x.min().values), float(ds.x.max().values)),
         lat=slice(float(ds.y.max().values), float(ds.y.min().values)),

@@ -113,7 +113,7 @@ def grab_ds(item, bands_of_interest, cog_mask, utm_zone, utm_letter):
 
 
 def valid_pixel_mask(ds):
-    return (~ds['SR_B1'].isnull()).astype(int).compute()
+    return (ds['SR_B1'].notnull()).astype(int).compute()
 
 
 def average_stack_of_scenes(ds_list):
@@ -146,22 +146,22 @@ def average_stack_of_scenes(ds_list):
     assert len(set(utm_letter)) == 1
     # less memory-intensive way of averaging
     full_ds = ds_list.pop().load()
-    valid_pixel_count = valid_pixel_mask(full_ds)
-    # fill nulls with 0 so that it does not invalidate valid values from other ds 
+    valid_pixel_count = valid_pixel_mask(full_ds).load()
+    # fill nulls with 0 so that it does not invalidate valid values from other ds
     full_ds = full_ds.fillna(0).load()
     while ds_list:
         ds = ds_list.pop().load()
         mask = valid_pixel_mask(ds).load()
-        full_ds += ds.fillna(0).compute()
-        valid_pixel_count = (valid_pixel_count + mask).load()
+        full_ds = full_ds + ds.fillna(0)
+        valid_pixel_count = valid_pixel_count + mask
+        full_ds.load()
+        valid_pixel_count.load()
         del mask
         del ds
     # divide by the number of active pixels to get your seasonal average
-    # if the number of valid pixel count is zero for a location, replace the numerator with nan to avoid 
-    # division by zero error 
-    print('full_ds', full_ds)
-    print('valid_pixel_count', valid_pixel_count)
-    full_ds = xr.where(valid_pixel_count == 0, np.nan, full_ds)
+    # if the number of valid pixel count is zero for a location, replace the numerator with nan to avoid
+    # division by zero error
+    full_ds = full_ds.where(valid_pixel_count > 0)
     full_ds = full_ds / valid_pixel_count
     del valid_pixel_count
 
