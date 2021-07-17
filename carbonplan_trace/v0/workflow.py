@@ -88,7 +88,6 @@ def process_one_tile(tile_id):
 
         # write total emissions
         tot_emissions.attrs.update(get_cf_global_attrs())
-        print(tot_emissions)
         tot_emissions.to_zarr(tot_mapper, encoding=tot_encoding, mode="w", consolidated=True)
 
         # split out emissions from fire/clearing
@@ -97,12 +96,15 @@ def process_one_tile(tile_id):
         # emissions occuring on the year of a fire or the year after a fire in the same pixel
         # are marked as emissions from fire. this is consistent with the methods in Harris et al 2021.
         # note that we are limited by the start of the dataset and will miss the fires from years[0] - 1
-        fire_attribution = fire_da + fire_da.shift(year=1, fill_value=0)
-        out['emissions_from_clearing'] = tot_emissions['emissions'].where(~fire_attribution)
-        out['emissions_from_fire'] = tot_emissions['emissions'].where(fire_attribution)
+        fire_attribution = (fire_da + fire_da.shift(year=1, fill_value=0)).astype(np.bool)
+        tot_emissions, fire_attribution = xr.align(tot_emissions, fire_attribution, join='inner')
+        out['emissions_from_clearing'] = tot_emissions['emissions'].where(
+            ~fire_attribution, other=0
+        )
+        out['emissions_from_fire'] = tot_emissions['emissions'].where(fire_attribution, other=0)
+
         out.attrs.update(get_cf_global_attrs())
 
-        print(out)
         # TODO: add metadata to emissions variable
         out.to_zarr(split_mapper, encoding=split_encoding, mode="w", consolidated=True)
         return_status = 'emissions-done'
@@ -121,7 +123,6 @@ def process_one_tile(tile_id):
                 coarse_chunks
             )
             coarse_out.attrs.update(get_cf_global_attrs())
-            print(coarse_out)
 
             out_mapper.clear()
             coarse_out.to_zarr(out_mapper, encoding=encoding, mode="w", consolidated=True)
