@@ -138,6 +138,7 @@ def create_combined_landsat_biomass_df(data, tiles, year, bounding_box):
     # it isn't spatial data (it's df)
     biomass_df = load.biomass(tiles, year)[biomass_variables]
     min_lat, max_lat, min_lon, max_lon = bounding_box
+
     biomass_df = biomass_df.loc[
         (biomass_df.lat >= min_lat)
         & (biomass_df.lat <= max_lat)

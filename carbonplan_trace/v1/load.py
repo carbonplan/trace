@@ -145,17 +145,23 @@ def biomass(tiles, year):
         scene-specific UTM zone
 
     '''
+    no_biomass_data_tiles = ["00N_070E", "20N_120W", "30N_170W", "40N_070W"]
     complete_df = None
     for tile in tiles:
-        file_mapper = fs.get_mapper('s3://carbonplan-climatetrace/v1/biomass/{}.zarr'.format(tile))
-
-        ds = xr.open_zarr(file_mapper, consolidated=True)
-        df = ds.stack(unique_index=("record_index", "shot_number")).to_dataframe()
-        df = df[df['biomass'].notnull()]
-        if complete_df is not None:
-            complete_df = pd.concat([complete_df, df], axis=0)
-        else:
-            complete_df = df
-    complete_df['year'] = complete_df.apply(grab_year, axis=1)
-    complete_df = complete_df[complete_df['year'] == year]
+        if tile not in no_biomass_data_tiles:
+            file_mapper = fs.get_mapper(
+                's3://carbonplan-climatetrace/v1/biomass/{}.zarr'.format(tile)
+            )
+            ds = xr.open_zarr(file_mapper, consolidated=True)
+            df = ds.stack(unique_index=("record_index", "shot_number")).to_dataframe()
+            df = df[df['biomass'].notnull()]
+            if complete_df is not None:
+                complete_df = pd.concat([complete_df, df], axis=0)
+            else:
+                complete_df = df
+    if complete_df is not None:
+        complete_df['year'] = complete_df.apply(grab_year, axis=1)
+        complete_df = complete_df[complete_df['year'] == year]
+    else:
+        complete_df = pd.DataFrame({'lat': [], 'lon': [], 'ecoregion': []})
     return complete_df
