@@ -233,9 +233,9 @@ class xgb_model(baseline_model):
             'colsample_bytree': 0.7,
             'subsample': 0.7,
             'min_child_weight': 4,
-            'lambda': 2,
-            'alpha': 1,
-            'gamma': 1,
+            # 'lambda': 2,
+            # 'alpha': 1,
+            # 'gamma': 1,
         }
         base_params.update(params)
         self.params = base_params

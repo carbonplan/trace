@@ -69,6 +69,7 @@ def create_target_grid(min_lat, max_lat, min_lon, max_lon):
 def reproject_dataset_to_fourthousandth_grid(ds, zone=None):
     ds = write_crs_dataset(ds, zone=zone)
     min_lat, max_lat, min_lon, max_lon = check_mins_maxes(ds)
+    print(min_lat, max_lat, min_lon, max_lon)
     target, tiles = create_target_grid(min_lat, max_lat, min_lon, max_lon)
     # the numbers aren't too big but if we normalize they might turn into decimals
     reprojected = ds.rio.reproject_match(target).load()

@@ -73,6 +73,7 @@ def prep_training_dataset(
                     data, tiles, bounding_box = reproject_dataset_to_fourthousandth_grid(
                         landsat_ds, zone=landsat_zone
                     )
+                    print(tiles)
                     del landsat_ds
                     # add in other datasets
                     data = add_aster_worldclim(data, tiles, lat_lon_box=bounding_box).load()

@@ -142,8 +142,6 @@ def average_stack_of_scenes(ds_list):
     # WATCH OUT: you don't want to average scenes from multiple utm projections!!
     # thank goodness we have these two swanky assertions below
     # TODO: this could probably be moved to a test
-    print(set(utm_zone))
-    print(set(utm_letter))
     assert len(set(utm_zone)) == 1
     assert len(set(utm_letter)) == 1
     # less memory-intensive way of averaging
