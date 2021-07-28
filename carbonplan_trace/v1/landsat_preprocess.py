@@ -156,8 +156,8 @@ def average_stack_of_scenes(ds_list):
         # you need to select one of them and then drop the
         # other
         # first find the most common projection letter
-        # if there are the same number of elements from each utm letter 
-        # this will grab the last alphabetically, meaning it will grab 
+        # if there are the same number of elements from each utm letter
+        # this will grab the last alphabetically, meaning it will grab
         # the projection which is further north (because that's how the
         # utm grid is set up).
         most_common_utm_letter = max(set(utm_letter), key=utm_letter.count)
