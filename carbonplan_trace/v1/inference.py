@@ -73,6 +73,7 @@ def reproject_dataset_to_fourthousandth_grid(ds, zone=None):
     target, tiles = create_target_grid(min_lat, max_lat, min_lon, max_lon)
     # the numbers aren't too big but if we normalize they might turn into decimals
     reprojected = ds.rio.reproject_match(target).load()
+    reprojected = reprojected.where(reprojected < 1e100)
     del ds
     return reprojected, tiles, [min_lat, max_lat, min_lon, max_lon]
 
