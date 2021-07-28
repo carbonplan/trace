@@ -8,6 +8,8 @@ from sklearn.cluster import KMeans
 from sklearn.metrics import mean_absolute_error, r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import GradientBoostingRegressor
 
 fs = S3FileSystem()
 
@@ -226,13 +228,14 @@ class xgb_model(baseline_model):
         base_params = {
             'objective': 'reg:squarederror',
             'eval_metric': 'rmse',
+            'tree_method': 'hist',
             'n_estimators': 999,
             'random_state': seed,
             'learning_rate': 0.05,
             'max_depth': 10,
-            'colsample_bytree': 0.7,
-            'subsample': 0.7,
-            'min_child_weight': 4,
+            'colsample_bytree': 0.8,
+            'subsample': 0.8,
+            'min_child_weight': 6,
             # 'lambda': 2,
             # 'alpha': 1,
             # 'gamma': 1,
@@ -337,6 +340,99 @@ class xgb_model(baseline_model):
 #     return model
 
 # def random_forest_model(X_train, X_test, y_train, y_test, seed=0):
-#     model = RandomForestRegressor(n_estimators=200, max_features='auto', max_depth=None, min_samples_leaf=1, random_state=seed)
+#     
 #     model.fit(X_train, y_train)
 #     return model
+
+class random_forest_model(baseline_model):
+    """
+    Random Forest model
+    """
+
+    def __init__(
+        self,
+        realm,
+        df_train,
+        df_test,
+        output_folder,
+        validation_year,
+        params={},
+        overwrite=False,
+        seed=42,
+    ):
+        self.name = f'rf_{realm}_{validation_year}'
+        self.eval_funcs = eval_funcs
+        self.model_filename = f'{output_folder}{self.name}.bin'
+        self.seed = seed
+
+        print(f'    Building {self.name} model')
+
+        self.X_train, self.y_train = get_features_and_label(df_train)
+        self.X_test, self.y_test = get_features_and_label(df_test)
+        self._fit()
+
+    def _fit(self):
+        self.model = RandomForestRegressor(
+            max_depth=10, 
+            min_samples_leaf=4,
+            max_features=0.9, 
+            random_state=self.seed
+        )
+
+        self.model.fit(
+            self.X_train,
+            self.y_train,
+        )
+
+    def _predict(self, df):
+        # df_scaled = transform_df(self.transformers, df)
+        X, y = get_features_and_label(df)
+        return self.model.predict(X)
+
+class gradient_boost_model(baseline_model):
+    """
+    Gradient Boosting model
+    """
+
+    def __init__(
+        self,
+        realm,
+        df_train,
+        df_test,
+        output_folder,
+        validation_year,
+        params={},
+        overwrite=False,
+        seed=42,
+    ):
+        self.name = f'gb_{realm}_{validation_year}'
+        self.eval_funcs = eval_funcs
+        self.model_filename = f'{output_folder}{self.name}.bin'
+        self.seed = seed
+
+        print(f'    Building {self.name} model')
+
+        self.X_train, self.y_train = get_features_and_label(df_train)
+        self.X_test, self.y_test = get_features_and_label(df_test)
+        self._fit()
+
+    def _fit(self):
+        self.model = GradientBoostingRegressor(
+            max_depth=10, 
+            min_samples_leaf=4,
+            max_features=0.9, 
+            random_state=self.seed,
+            n_estimators=200,
+            learning_rate=0.05,
+        )
+
+        self.model.fit(
+            self.X_train,
+            self.y_train,
+        )
+
+    def _predict(self, df):
+        # df_scaled = transform_df(self.transformers, df)
+        X, y = get_features_and_label(df)
+        return self.model.predict(X)
+    
