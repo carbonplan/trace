@@ -70,6 +70,8 @@ def prep_training_dataset(
                 if landsat_ds:
                     # reproject from utm to lat/lon
                     landsat_zone = landsat_ds.utm_zone_number + landsat_ds.utm_zone_letter
+                    # sets null value to np.nan 
+                    write_nodata(landsat_ds)
                     data, tiles, bounding_box = reproject_dataset_to_fourthousandth_grid(
                         landsat_ds, zone=landsat_zone
                     )

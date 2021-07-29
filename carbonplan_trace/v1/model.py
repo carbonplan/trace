@@ -16,7 +16,7 @@ fs = S3FileSystem()
 features = (
     ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7', 'NDVI', 'NDII', 'NIR_V']
     + [f'BIO{str(n).zfill(2)}' for n in range(1, 20)]
-    + ['burned', 'treecover2000_mean']
+    + ['treecover2000_mean']
     + ['prec', 'srad', 'tavg', 'tmax', 'tmin', 'vapr', 'wind']
     + ['elev', 'slope', 'aspect']
 )
@@ -231,14 +231,14 @@ class xgb_model(baseline_model):
             'tree_method': 'hist',
             'n_estimators': 999,
             'random_state': seed,
-            'learning_rate': 0.05,
-            'max_depth': 10,
-            'colsample_bytree': 0.8,
-            'subsample': 0.8,
-            'min_child_weight': 6,
-            # 'lambda': 2,
-            # 'alpha': 1,
-            # 'gamma': 1,
+            'learning_rate': 0.25,
+            'max_depth': 14,
+            'colsample_bytree': 0.5,
+            'subsample': 0.5,
+            'min_child_weight': 10,
+            'lambda': 4,
+            'alpha': 3,
+            'gamma': 3,
         }
         base_params.update(params)
         self.params = base_params
