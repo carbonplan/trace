@@ -3,13 +3,13 @@ import os
 import numpy as np
 import pandas as pd
 import xgboost as xgb
+from joblib import dump, load
 from s3fs import S3FileSystem
 from sklearn.cluster import KMeans
+from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.ensemble import GradientBoostingRegressor
 
 fs = S3FileSystem()
 
@@ -68,6 +68,12 @@ def train_test_split_based_on_year(
     elif val_strategy == 'last':
         val_year = all_years[-1]
         test_year = all_years[-2]
+    elif val_strategy == 'no':
+        # when no validation year is entered, the split strategy has to be random since otherwise
+        # we do not know which year should be used for test
+        assert random_train_test
+        val_year = None
+        test_year = None
     else:
         raise Exception('val_year has to be either first or last')
 
@@ -132,6 +138,19 @@ def load_xgb_model(model_path, fs):
     return model
 
 
+def load_sklearn_model(model_path, fs):
+    cwd = os.getcwd()
+    if model_path.startswith('s3'):
+        model_name = model_path.split('/')[-1]
+        new_model_path = ('/').join([cwd, model_name])
+        fs.get(model_path, new_model_path)
+        model_path = new_model_path
+
+    model = load(model_path)
+
+    return model
+
+
 def save_xgb_model(model, model_path, fs):
     cwd = os.getcwd()
     if model_path.startswith('s3'):
@@ -141,6 +160,17 @@ def save_xgb_model(model, model_path, fs):
         fs.put_file(lpath=local_model_path, rpath=model_path)
     else:
         model.save_model(model_path)
+
+
+def save_sklearn_model(model, model_path, fs):
+    cwd = os.getcwd()
+    if model_path.startswith('s3'):
+        model_name = model_path.split('/')[-1]
+        local_model_path = ('/').join([cwd, model_name])
+        dump(model, local_model_path)
+        fs.put_file(lpath=local_model_path, rpath=model_path)
+    else:
+        dump(model, model_path)
 
 
 eval_funcs = {'bias': mean_error, 'mae': mean_absolute_error, 'r2': r2_score}
@@ -162,6 +192,8 @@ class baseline_model:
         overwrite=False,
         seed=42,
     ):
+        if validation_year == 'no':
+            validation_year = 'all'
         self.name = f'baseline_{realm}'
         self.eval_funcs = eval_funcs
         self.model_filename = f'{output_folder}{self.name}.txt'
@@ -221,6 +253,8 @@ class xgb_model(baseline_model):
         overwrite=False,
         seed=42,
     ):
+        if validation_year == 'no':
+            validation_year = 'all'
         self.name = f'xgb_{realm}_{validation_year}'
         self.eval_funcs = eval_funcs
         self.model_filename = f'{output_folder}{self.name}.bin'
@@ -231,14 +265,14 @@ class xgb_model(baseline_model):
             'tree_method': 'hist',
             'n_estimators': 999,
             'random_state': seed,
-            'learning_rate': 0.25,
+            'learning_rate': 0.2,
             'max_depth': 14,
             'colsample_bytree': 0.5,
             'subsample': 0.5,
-            'min_child_weight': 10,
-            'lambda': 4,
-            'alpha': 3,
-            'gamma': 3,
+            'min_child_weight': 6,
+            'lambda': 3,
+            'alpha': 2,
+            'gamma': 2,
         }
         base_params.update(params)
         self.params = base_params
@@ -249,54 +283,6 @@ class xgb_model(baseline_model):
             self._load()
         else:
             print(f'    Building {self.name} model')
-
-            # cols_to_scale = [
-            #     'SR_B1',
-            #     'SR_B2',
-            #     'SR_B3',
-            #     'SR_B4',
-            #     'SR_B5',
-            #     'SR_B7',
-            #     'NDVI',
-            #     'NDII',
-            #     'aspect',
-            #     'elev',
-            #     'slope',
-            #     'BIO01',
-            #     'BIO02',
-            #     'BIO03',
-            #     'BIO04',
-            #     'BIO05',
-            #     'BIO06',
-            #     'BIO07',
-            #     'BIO08',
-            #     'BIO09',
-            #     'BIO10',
-            #     'BIO11',
-            #     'BIO12',
-            #     'BIO13',
-            #     'BIO14',
-            #     'BIO15',
-            #     'BIO16',
-            #     'BIO17',
-            #     'BIO18',
-            #     'BIO19',
-            #     'prec',
-            #     'srad',
-            #     'tavg',
-            #     'tmax',
-            #     'tmin',
-            #     'vapr',
-            #     'wind',
-            # ]
-            # self.transformers = fit_transformers(df_train, columns=cols_to_scale)
-            # # save transformers
-            # with fs.open(self.transformer_filename, 'wb') as f:
-            #     pickle.dump(self.transformers, f)
-
-            # df_train_scaled = transform_df(self.transformers, df_train)
-            # df_test_scaled = transform_df(self.transformers, df_test)
-
             self.X_train, self.y_train = get_features_and_label(df_train)
             self.X_test, self.y_test = get_features_and_label(df_test)
             self._fit()
@@ -304,9 +290,6 @@ class xgb_model(baseline_model):
 
     def _load(self):
         self.model = load_xgb_model(self.model_filename, fs)
-        # # load transformers
-        # with fs.open(self.transformer_filename, 'rb') as f:
-        #     self.transformers = pickle.load(f)
 
     def _fit(self):
         self.model = xgb.XGBRegressor(**self.params)
@@ -323,7 +306,6 @@ class xgb_model(baseline_model):
         except AttributeError:
             ntree_limit = None
 
-        # df_scaled = transform_df(self.transformers, df)
         X, y = get_features_and_label(df)
         if ntree_limit:
             return self.model.predict(X, iteration_range=(0, ntree_limit))
@@ -333,16 +315,6 @@ class xgb_model(baseline_model):
     def _save(self):
         save_xgb_model(self.model, self.model_filename, fs)
 
-
-# def linear_model(X_train, X_test, y_train, y_test):
-#     model = SGDRegressor()
-#     model.fit(X_train, y_train)
-#     return model
-
-# def random_forest_model(X_train, X_test, y_train, y_test, seed=0):
-#     
-#     model.fit(X_train, y_train)
-#     return model
 
 class random_forest_model(baseline_model):
     """
@@ -360,34 +332,43 @@ class random_forest_model(baseline_model):
         overwrite=False,
         seed=42,
     ):
+        if validation_year == 'no':
+            validation_year = 'all'
         self.name = f'rf_{realm}_{validation_year}'
         self.eval_funcs = eval_funcs
-        self.model_filename = f'{output_folder}{self.name}.bin'
+        self.model_filename = f'{output_folder}{self.name}.joblib'
         self.seed = seed
 
-        print(f'    Building {self.name} model')
+        if fs.exists(self.model_filename) and not overwrite:
+            print(f'    {self.name} model already exists, loading')
+            self._load()
+        else:
+            print(f'    Building {self.name} model')
+            self.X_train, self.y_train = get_features_and_label(df_train)
+            self.X_test, self.y_test = get_features_and_label(df_test)
+            self._fit()
+            self._save()
 
-        self.X_train, self.y_train = get_features_and_label(df_train)
-        self.X_test, self.y_test = get_features_and_label(df_test)
-        self._fit()
+    def _load(self):
+        self.model = load_sklearn_model(self.model_filename, fs)
 
     def _fit(self):
         self.model = RandomForestRegressor(
-            max_depth=10, 
-            min_samples_leaf=4,
-            max_features=0.9, 
-            random_state=self.seed
+            max_depth=10, min_samples_leaf=4, max_features=0.9, random_state=self.seed, n_jobs=-1
         )
-
         self.model.fit(
             self.X_train,
             self.y_train,
         )
 
+    def _save(self):
+        save_sklearn_model(self.model, self.model_filename, fs)
+
     def _predict(self, df):
         # df_scaled = transform_df(self.transformers, df)
         X, y = get_features_and_label(df)
         return self.model.predict(X)
+
 
 class gradient_boost_model(baseline_model):
     """
@@ -405,6 +386,8 @@ class gradient_boost_model(baseline_model):
         overwrite=False,
         seed=42,
     ):
+        if validation_year == 'no':
+            validation_year = 'all'
         self.name = f'gb_{realm}_{validation_year}'
         self.eval_funcs = eval_funcs
         self.model_filename = f'{output_folder}{self.name}.bin'
@@ -418,9 +401,9 @@ class gradient_boost_model(baseline_model):
 
     def _fit(self):
         self.model = GradientBoostingRegressor(
-            max_depth=10, 
+            max_depth=10,
             min_samples_leaf=4,
-            max_features=0.9, 
+            max_features=0.9,
             random_state=self.seed,
             n_estimators=200,
             learning_rate=0.05,
@@ -435,4 +418,3 @@ class gradient_boost_model(baseline_model):
         # df_scaled = transform_df(self.transformers, df)
         X, y = get_features_and_label(df)
         return self.model.predict(X)
-    
