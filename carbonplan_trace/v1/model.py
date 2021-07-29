@@ -21,6 +21,8 @@ features = (
     + ['elev', 'slope', 'aspect']
 )
 
+label = 'biomass'
+
 
 def calc_NDII(df):
     nir = df['SR_B4']
@@ -41,7 +43,7 @@ def calc_NIR_V(df):
     if 'NDVI' not in df:
         df['NDVI'] = calc_NDVI(df)
 
-    return df[NIR_BAND] * df['NDVI']
+    return df['SR_B4'] * df['NDVI']
 
 
 def train_test_split_based_on_year(
@@ -350,13 +352,13 @@ class random_forest_model(baseline_model):
     def _fit(self):
         self.model = RandomForestRegressor(
             n_estimators=200,
-            max_depth=14, 
-            min_samples_leaf=4, 
+            max_depth=14,
+            min_samples_leaf=4,
             max_features=0.5,
             max_samples=0.5,
             random_state=self.seed,
             n_jobs=-1,
-            verbose=2
+            verbose=2,
         )
 
         self.model.fit(
