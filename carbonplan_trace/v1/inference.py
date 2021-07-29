@@ -9,12 +9,13 @@ import rasterio as rio
 import rioxarray
 import utm
 import xarray as xr
+import xgboost as xgb
 from pyproj import CRS
 from rasterio.session import AWSSession
 from s3fs import S3FileSystem
 
 from carbonplan_trace.v1.landsat_preprocess import scene_seasonal_average
-from carbonplan_trace.v1.model import features, load_xgb_model
+from carbonplan_trace.v1.model import features
 
 from ..v1 import load, utils
 
@@ -69,7 +70,6 @@ def create_target_grid(min_lat, max_lat, min_lon, max_lon):
 def reproject_dataset_to_fourthousandth_grid(ds, zone=None):
     ds = write_crs_dataset(ds, zone=zone)
     min_lat, max_lat, min_lon, max_lon = check_mins_maxes(ds)
-    print(min_lat, max_lat, min_lon, max_lon)
     target, tiles = create_target_grid(min_lat, max_lat, min_lon, max_lon)
     # the numbers aren't too big but if we normalize they might turn into decimals
     reprojected = ds.rio.reproject_match(target).load()
@@ -127,6 +127,20 @@ def convert_to_lat_lon(df, utm_zone_number, utm_zone_letter):
     '''
 
     return utm.to_latlon(df['x'], df['y'], int(utm_zone_number), utm_zone_letter)
+
+
+def load_xgb_model(model_path, fs):
+    cwd = os.getcwd()
+    if model_path.startswith('s3'):
+        model_name = model_path.split('/')[-1]
+        new_model_path = ('/').join([cwd, model_name])
+        fs.get(model_path, new_model_path)
+        model_path = new_model_path
+
+    model = xgb.XGBRegressor()
+    model.load_model(model_path)
+
+    return model
 
 
 def add_all_variables(data, tiles, year, lat_lon_box=None):

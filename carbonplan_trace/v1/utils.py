@@ -197,6 +197,7 @@ def open_and_combine_lat_lon_data(folder, tiles=None, lat_lon_box=None):
                 da = da.sel(lat=slice(min_lat, max_lat), lon=slice(min_lon, max_lon))
             if da.dims['lat'] > 0 and da.dims['lon'] > 0:
                 ds_list.append(da)
+
     if len(ds_list) > 0:
         for dim in ['lat', 'lon']:
             ds_list = align_coords_by_dim_groups(ds_list, dim)
