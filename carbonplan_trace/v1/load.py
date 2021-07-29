@@ -91,8 +91,7 @@ def igbp(data, tiles, year, lat_lon_box=None, dtype='int8'):
     igbp_records = utils.find_matching_records(
         data=igbp, lats=data.y, lons=data.x, years=year, dtype=dtype
     )
-    if 'spatial_ref' in igbp_records:
-        data['igbp'] = igbp_records.igbp.drop(['spatial_ref'])
+    data['igbp'] = igbp_records.igbp.drop(['spatial_ref'])
 
     del igbp
 
@@ -101,9 +100,7 @@ def igbp(data, tiles, year, lat_lon_box=None, dtype='int8'):
 
 def ecoregion(data, tiles, lat_lon_box=None, dtype='int16'):
     eco = utils.open_ecoregion_data(tiles, lat_lon_box=lat_lon_box)
-    eco_records = utils.find_matching_records(
-        data=eco, lats=data.y, lons=data.x, dtype=dtype
-    )
+    eco_records = utils.find_matching_records(data=eco, lats=data.y, lons=data.x, dtype=dtype)
     if 'spatial_ref' in eco_records:
         data['ecoregion'] = eco_records.ecoregion.drop(['spatial_ref'])
 

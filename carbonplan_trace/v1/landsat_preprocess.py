@@ -150,7 +150,7 @@ def average_stack_of_scenes(ds_list):
     # TODO: this could probably be moved to a test
     assert len(set(utm_zone)) == 1
     if len(set(utm_letter)) == 1:
-        print('here')
+        print('only 1 utm letter')
     else:
         # if here, you have scenes with multiple projections
         # you need to select one of them and then drop the

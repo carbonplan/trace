@@ -5,6 +5,7 @@ import boto3
 import dask
 import fsspec
 import numpy as np
+import pandas as pd
 import rasterio as rio
 import rioxarray
 import utm
@@ -14,9 +15,9 @@ from pyproj import CRS
 from rasterio.session import AWSSession
 from s3fs import S3FileSystem
 
-from carbonplan_trace.v1.landsat_preprocess import scene_seasonal_average
 import carbonplan_trace.v1.model as m
 from carbonplan_trace.v1.glas_allometric_eq import ECO_TO_REALM_MAP
+from carbonplan_trace.v1.landsat_preprocess import scene_seasonal_average
 
 from ..v1 import load, utils
 
@@ -198,15 +199,17 @@ def predict(
 
                 # add in other datasets
                 data = add_all_variables(data, tiles, year, lat_lon_box=bounding_box).load()
-                df = dataset_to_tabular(data)
+                df = dataset_to_tabular(data.drop(['spatial_ref']))
                 df['realm'] = df.ecoregion.apply(ECO_TO_REALM_MAP.__getitem__)
                 del data
-                
+
                 # apply the correct model for each realm
                 if len(df) > 0:
-                    # write input 
+                    # write input
                     if input_write_bucket is not None:
-                        utils.write_parquet(df, input_write_bucket, access_key_id, secret_access_key)
+                        utils.write_parquet(
+                            df, input_write_bucket, access_key_id, secret_access_key
+                        )
                     xgb_result = []
                     rf_result = []
                     for realm, sub in df.groupby('realm'):
@@ -216,43 +219,35 @@ def predict(
                             df_test=None,
                             output_folder=model_folder,
                             validation_year='none',
-                            overwrite=False
+                            overwrite=False,
                         )
                         xgb_result.append(make_inference(sub, xgb))
-                        
-                        # rf = m.random_forest_model(
-                        #     realm=realm,
-                        #     df_train=None,
-                        #     df_test=None,
-                        #     output_folder=model_folder,
-                        #     validation_year='none',
-                        #     overwrite=False
-                        # )
-                        # rf_result.append(make_inference(sub, rf))
+
+                        rf = m.random_forest_model(
+                            realm=realm,
+                            df_train=None,
+                            df_test=None,
+                            output_folder=model_folder,
+                            validation_year='none',
+                            overwrite=False,
+                        )
+                        rf_result.append(make_inference(sub, rf))
 
                     xgb_result = pd.concat(xgb_result)
-                    # rf_result = pd.concat(rf_result)
+                    rf_result = pd.concat(rf_result)
                     del df
             else:
                 xgb_result = pd.DataFrame(columns=['x', 'y', 'biomass'])
-                # rf_result = pd.DataFrame(columns=['x', 'y', 'biomass'])
-                
+                rf_result = pd.DataFrame(columns=['x', 'y', 'biomass'])
+
             if output_write_bucket is not None:
-                # xgb 
-                output_filepath = (
-                    f'{output_write_bucket}xgb/{year}/{path:03d}{row:03d}.parquet'
-                )
-                utils.write_parquet(
-                    xgb_result, output_filepath, access_key_id, secret_access_key
-                )
-                
-                # random forest 
-                # output_filepath = (
-                #     f'{output_write_bucket}rf/{year}/{path:03d}{row:03d}.parquet'
-                # )
-                # utils.write_parquet(
-                #     rf_result, output_filepath, access_key_id, secret_access_key
-                # )
+                # xgb
+                output_filepath = f'{output_write_bucket}xgb/{year}/{path:03d}{row:03d}.parquet'
+                utils.write_parquet(xgb_result, output_filepath, access_key_id, secret_access_key)
+
+                # random forest
+                output_filepath = f'{output_write_bucket}rf/{year}/{path:03d}{row:03d}.parquet'
+                utils.write_parquet(rf_result, output_filepath, access_key_id, secret_access_key)
                 return ('pass', output_filepath)
             else:
                 return prediction
