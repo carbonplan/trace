@@ -184,8 +184,6 @@ def predict(
         scheduler='single-threaded'
     ):  # this? **** #threads #single-threaded # threads??
         with rio.Env(aws_session):
-
-            model = load_xgb_model(model_path, fs)
             # create the landsat scene for that year
             landsat_ds = scene_seasonal_average(
                 path,
@@ -202,6 +200,7 @@ def predict(
             )
             # add in other datasets
             landsat_zone = landsat_ds.utm_zone_number + landsat_ds.utm_zone_letter
+            # sets null value to np.nan
             write_nodata(landsat_ds)
             data, tiles, bounding_box = reproject_dataset_to_fourthousandth_grid(
                 landsat_ds, zone=landsat_zone
@@ -212,6 +211,9 @@ def predict(
             del data
             if input_write_bucket is not None:
                 utils.write_parquet(df, input_write_bucket, access_key_id, secret_access_key)
+            # add realm information
+            # load the correct model for each realm
+            model = load_xgb_model(model_path, fs)
             prediction = make_inference(df, model, features)
             del df
             if output_write_bucket is not None:
