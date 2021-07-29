@@ -354,8 +354,16 @@ class random_forest_model(baseline_model):
 
     def _fit(self):
         self.model = RandomForestRegressor(
-            max_depth=10, min_samples_leaf=4, max_features=0.9, random_state=self.seed, n_jobs=-1
+            n_estimators=200,
+            max_depth=14, 
+            min_samples_leaf=4, 
+            max_features=0.5,
+            max_samples=0.5,
+            random_state=self.seed,
+            n_jobs=-1,
+            verbose=2
         )
+
         self.model.fit(
             self.X_train,
             self.y_train,
