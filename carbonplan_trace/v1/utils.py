@@ -219,14 +219,14 @@ def open_srtm_data(tiles=None):
     return ds
 
 
-def open_ecoregion_data(tiles=None):
+def open_ecoregion_data(tiles=None, lat_lon_box=None):
     """
     Load ecoregion data stored as 10x10 degree tiles
     If tiles is none, load all data available
     """
     folder = 's3://carbonplan-climatetrace/intermediate/ecoregions_mask/'
 
-    return open_and_combine_lat_lon_data(folder, tiles)
+    return open_and_combine_lat_lon_data(folder, tiles, lat_lon_box=lat_lon_box)
 
 
 def open_igbp_data(tiles=None, lat_lon_box=None):

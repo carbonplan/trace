@@ -91,14 +91,28 @@ def igbp(data, tiles, year, lat_lon_box=None, dtype='int8'):
     igbp_records = utils.find_matching_records(
         data=igbp, lats=data.y, lons=data.x, years=year, dtype=dtype
     )
-    data['burned'] = igbp_records.igbp.drop(['spatial_ref'])
+    if 'spatial_ref' in igbp_records:
+        data['igbp'] = igbp_records.igbp.drop(['spatial_ref'])
 
     del igbp
 
     return data
 
 
-def treecover2000(tiles, data, lat_lon_box=None, dtype='int8'):
+def ecoregion(data, tiles, lat_lon_box=None, dtype='int16'):
+    eco = utils.open_ecoregion_data(tiles, lat_lon_box=lat_lon_box)
+    eco_records = utils.find_matching_records(
+        data=eco, lats=data.y, lons=data.x, dtype=dtype
+    )
+    if 'spatial_ref' in eco_records:
+        data['ecoregion'] = eco_records.ecoregion.drop(['spatial_ref'])
+
+    del eco
+
+    return data
+
+
+def treecover2000(data, tiles, lat_lon_box=None, dtype='int8'):
     hansen = []
     for tile in tiles:
         lat, lon = utils.get_lat_lon_tags_from_tile_path(tile)
@@ -165,3 +179,19 @@ def biomass(tiles, year):
     else:
         complete_df = pd.DataFrame({'lat': [], 'lon': [], 'ecoregion': []})
     return complete_df
+
+
+def training(realm, y0=2003, y1=2010, reload=False, access_key_id=None, secret_access_key=None):
+    output_filename = f's3://carbonplan-climatetrace/v1/training/{realm}/all_data.parquet'
+    if fs.exists(output_filename) and not reload:
+        return pd.read_parquet(output_filename)
+    else:
+        output = []
+        for yr in range(y0, y1):
+            folder_name = f's3://carbonplan-climatetrace/v1/training/{realm}/{yr}/'
+            files = fs.ls(folder_name)
+            for f in files:
+                output.append(pd.read_parquet(f's3://{f}'))
+        output = pd.concat(output)
+        utils.write_parquet(output, output_filename, access_key_id, secret_access_key)
+        return output
