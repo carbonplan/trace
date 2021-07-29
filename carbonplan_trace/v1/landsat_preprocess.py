@@ -1,5 +1,6 @@
 import gc
 import json
+from itertools import compress
 
 import boto3
 import dask
@@ -116,6 +117,11 @@ def valid_pixel_mask(ds):
     return (ds['SR_B1'].notnull()).astype(int).compute()
 
 
+def drop_other_projections(lst, indices_with_most_common_letter):
+    truncated_list = list(compress(lst, indices_with_most_common_letter))
+    return truncated_list
+
+
 def average_stack_of_scenes(ds_list):
     '''
     Average across scenes. This will work the same regardless
@@ -140,10 +146,28 @@ def average_stack_of_scenes(ds_list):
         utm_zone.append(ds.attrs['utm_zone_number'])
         utm_letter.append(ds.attrs['utm_zone_letter'])
     # WATCH OUT: you don't want to average scenes from multiple utm projections!!
-    # thank goodness we have these two swanky assertions below
+    # thank goodness we have these a swanky assertion and contingency below
     # TODO: this could probably be moved to a test
     assert len(set(utm_zone)) == 1
-    assert len(set(utm_letter)) == 1
+    if len(set(utm_letter)) == 1:
+        print('here')
+    else:
+        # if here, you have scenes with multiple projections
+        # you need to select one of them and then drop the
+        # other
+        # first find the most common projection letter
+        # if there are the same number of elements from each utm letter
+        # this will grab the last alphabetically, meaning it will grab
+        # the projection which is further north (because that's how the
+        # utm grid is set up).
+        most_common_utm_letter = max(set(utm_letter), key=utm_letter.count)
+        # then find the indices corresponding to those letters
+        indices_with_most_common_letter = list(np.array(utm_letter) == most_common_utm_letter)
+        # then drop the elements in the list of datasets that are not corresponding to that projection
+        ds_list = drop_other_projections(ds_list, indices_with_most_common_letter)
+        utm_letter = drop_other_projections(utm_letter, indices_with_most_common_letter)
+        utm_zone = drop_other_projections(utm_zone, indices_with_most_common_letter)
+
     # less memory-intensive way of averaging
     full_ds = ds_list.pop().load()
     valid_pixel_count = valid_pixel_mask(full_ds).load()

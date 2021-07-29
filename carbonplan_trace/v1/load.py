@@ -165,32 +165,3 @@ def biomass(tiles, year):
     else:
         complete_df = pd.DataFrame({'lat': [], 'lon': [], 'ecoregion': []})
     return complete_df
-
-
-def training(
-    realm, version='v1', y0=2003, y1=2010, reload=True, access_key_id=None, secret_access_key=None
-):
-    folder = f"s3://carbonplan-climatetrace/{version}/training/{realm}"
-    output_filename = f"{folder}/all_data.parquet"
-
-    if fs.exists(output_filename) and not reload:
-        output = pd.read_parquet(output_filename)
-    else:
-        output = []
-        for year in np.arange(y0, y1):
-            scene_urls = fs.ls(f"{folder}/{year}", recursive=True)
-            for url in scene_urls:
-                temp = pd.read_parquet(f's3://{url}')
-                temp['year'] = year
-                output.append(temp)
-
-        output = pd.concat(output)
-        utils.write_parquet(output, output_filename, access_key_id, secret_access_key)
-    if (output.isnull().sum() > 0).any():
-        print(f'    found nulls in input {output.isnull().sum()}, dropping')
-        output.dropna(how='any', inplace=True)
-    if ((output == np.inf).sum() > 0).any():
-        print(f'    found inf in input {(output == np.inf).sum()}, dropping')
-        output = output.loc[(output != np.inf).all(axis=1)]
-
-    return output
