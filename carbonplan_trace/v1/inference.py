@@ -238,9 +238,13 @@ def predict(
                     rf_result = pd.concat(rf_result)
                     del df
                 else:
-                    xgb_result = pd.DataFrame([[np.nan, np.nan, np.nan]], columns=['x', 'y', 'biomass'])
-                    rf_result = pd.DataFrame([[np.nan, np.nan, np.nan]], columns=['x', 'y', 'biomass'])
-            else: 
+                    xgb_result = pd.DataFrame(
+                        [[np.nan, np.nan, np.nan]], columns=['x', 'y', 'biomass']
+                    )
+                    rf_result = pd.DataFrame(
+                        [[np.nan, np.nan, np.nan]], columns=['x', 'y', 'biomass']
+                    )
+            else:
                 xgb_result = pd.DataFrame([[np.nan, np.nan, np.nan]], columns=['x', 'y', 'biomass'])
                 rf_result = pd.DataFrame([[np.nan, np.nan, np.nan]], columns=['x', 'y', 'biomass'])
 
