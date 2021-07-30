@@ -117,6 +117,15 @@ def get_features_and_label(df):
     return df[features], df[label]
 
 
+def get_features(df):
+    df.loc[:, 'NIR_V'] = calc_NIR_V(df)
+
+    for v in features:
+        assert v in df
+
+    return df[features]
+
+
 def mean_error(y_true, y_pred):
     return np.mean(y_pred - y_true)
 
@@ -303,7 +312,7 @@ class xgb_model(baseline_model):
         except AttributeError:
             ntree_limit = None
 
-        X, y = get_features_and_label(df)
+        X = get_features(df)
         if ntree_limit:
             return self.model.predict(X, iteration_range=(0, ntree_limit))
         else:
@@ -371,7 +380,7 @@ class random_forest_model(baseline_model):
 
     def predict(self, df):
         # df_scaled = transform_df(self.transformers, df)
-        X, y = get_features_and_label(df)
+        X = get_features(df)
         return self.model.predict(X)
 
 

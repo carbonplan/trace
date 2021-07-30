@@ -200,6 +200,7 @@ def predict(
                 # add in other datasets
                 data = add_all_variables(data, tiles, year, lat_lon_box=bounding_box).load()
                 df = dataset_to_tabular(data.drop(['spatial_ref']))
+                df = df.loc[df.ecoregion > 0]
                 df['realm'] = df.ecoregion.apply(ECO_TO_REALM_MAP.__getitem__)
                 del data
 

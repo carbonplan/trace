@@ -109,6 +109,7 @@ def grab_ds(item, bands_of_interest, cog_mask, utm_zone, utm_letter):
     ds.attrs["utm_zone_letter"] = utm_letter
     ds = calc_NDVI(ds)
     ds = calc_NDII(ds)
+    ds = calc_NIR_V(ds)
     gc.collect()
     return ds
 
@@ -340,6 +341,28 @@ def calc_NDII(ds):
     nir = ds['SR_B4']
     swir = ds['SR_B5']
     ds['NDII'] = (nir - swir) / (nir + swir)
+
+    return ds
+
+
+def calc_NIR_V(ds):
+
+    '''
+    Calculate NIR_V
+
+    Parameters
+    ----------
+    ds: xarray Dataset
+        dataset with six surface reflectance bands
+
+    Returns
+    -------
+    ds: xarray Dataset
+        dataset with NIR_V added as variable
+    '''
+    nir = ds['SR_B4']
+    ndvi = ds['NDVI']
+    ds['NIR_V'] = nir * ndvi 
 
     return ds
 
