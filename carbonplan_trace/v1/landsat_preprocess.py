@@ -361,8 +361,9 @@ def calc_NIR_V(ds):
         dataset with NIR_V added as variable
     '''
     nir = ds['SR_B4']
-    ndvi = ds['NDVI']
-    ds['NIR_V'] = nir * ndvi
+    red = ds['SR_B3']
+
+    ds['NIR_V'] = nir * ((nir - red) / (nir + red))
 
     return ds
 
