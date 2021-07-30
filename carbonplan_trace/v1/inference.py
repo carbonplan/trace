@@ -243,11 +243,11 @@ def predict(
 
             if output_write_bucket is not None:
                 # xgb
-                output_filepath = f'{output_write_bucket}xgb/{year}/{path:03d}{row:03d}.parquet'
+                output_filepath = f'{output_write_bucket}/xgb/{year}/{path:03d}{row:03d}.parquet'
                 utils.write_parquet(xgb_result, output_filepath, access_key_id, secret_access_key)
 
                 # random forest
-                output_filepath = f'{output_write_bucket}rf/{year}/{path:03d}{row:03d}.parquet'
+                output_filepath = f'{output_write_bucket}/rf/{year}/{path:03d}{row:03d}.parquet'
                 utils.write_parquet(rf_result, output_filepath, access_key_id, secret_access_key)
                 return ('pass', output_filepath)
             else:
