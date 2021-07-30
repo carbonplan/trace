@@ -237,9 +237,16 @@ def predict(
                     xgb_result = pd.concat(xgb_result)
                     rf_result = pd.concat(rf_result)
                     del df
+                else:
+                    xgb_result = pd.DataFrame(
+                        [[np.nan, np.nan, np.nan]], columns=['x', 'y', 'biomass']
+                    )
+                    rf_result = pd.DataFrame(
+                        [[np.nan, np.nan, np.nan]], columns=['x', 'y', 'biomass']
+                    )
             else:
-                xgb_result = pd.DataFrame(columns=['x', 'y', 'biomass'])
-                rf_result = pd.DataFrame(columns=['x', 'y', 'biomass'])
+                xgb_result = pd.DataFrame([[np.nan, np.nan, np.nan]], columns=['x', 'y', 'biomass'])
+                rf_result = pd.DataFrame([[np.nan, np.nan, np.nan]], columns=['x', 'y', 'biomass'])
 
             if output_write_bucket is not None:
                 # xgb
@@ -251,7 +258,7 @@ def predict(
                 utils.write_parquet(rf_result, output_filepath, access_key_id, secret_access_key)
                 return ('pass', output_filepath)
             else:
-                return prediction
+                return xgb_result
 
 
 predict_delayed = dask.delayed(predict)
