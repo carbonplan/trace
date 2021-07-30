@@ -145,7 +145,7 @@ def make_inference(input_data, model):
     input_data is assumed to be a pandas dataframe, and model uses standard sklearn API with .predict
     """
     input_data['NIR_V'] = m.calc_NIR_V(input_data)
-    input_data = input_data.replace([np.nan, np.inf, -np.inf], np.nan)
+    input_data = input_data.replace([np.nan, np.inf, -np.inf, None], np.nan)
     input_data = input_data.dropna(subset=m.features)
     gc.collect()
     input_data['biomass'] = model.predict(input_data)

@@ -109,7 +109,8 @@ def transform_df(transformers, df):
 
 
 def get_features_and_label(df):
-    df.loc[:, 'NIR_V'] = calc_NIR_V(df)
+    if 'NIR_V' not in df:
+        df.loc[:, 'NIR_V'] = calc_NIR_V(df)
 
     for v in features + [label]:
         assert v in df
@@ -118,7 +119,8 @@ def get_features_and_label(df):
 
 
 def get_features(df):
-    df.loc[:, 'NIR_V'] = calc_NIR_V(df)
+    if 'NIR_V' not in df:
+        df.loc[:, 'NIR_V'] = calc_NIR_V(df)
 
     for v in features:
         assert v in df
