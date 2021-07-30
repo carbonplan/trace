@@ -14,7 +14,7 @@ from sklearn.preprocessing import StandardScaler
 fs = S3FileSystem()
 
 features = (
-    ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7', 'NDVI', 'NDII']
+    ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7', 'NDVI', 'NDII', 'NIR_V']
     + [f'BIO{str(n).zfill(2)}' for n in range(1, 20)]
     + ['treecover2000_mean']
     + ['prec', 'srad', 'tavg', 'tmax', 'tmin', 'vapr', 'wind']
@@ -65,7 +65,7 @@ def train_test_split_based_on_year(
     elif val_strategy == 'last':
         val_year = all_years[-1]
         test_year = all_years[-2]
-    elif val_strategy == 'no':
+    elif val_strategy == 'none':
         # when no validation year is entered, the split strategy has to be random since otherwise
         # we do not know which year should be used for test
         assert random_train_test
@@ -115,6 +115,15 @@ def get_features_and_label(df):
         assert v in df
 
     return df[features], df[label]
+
+
+def get_features(df):
+    df.loc[:, 'NIR_V'] = calc_NIR_V(df)
+
+    for v in features:
+        assert v in df
+
+    return df[features]
 
 
 def mean_error(y_true, y_pred):
@@ -189,7 +198,7 @@ class baseline_model:
         overwrite=False,
         seed=42,
     ):
-        if validation_year == 'no':
+        if validation_year == 'none':
             validation_year = 'all'
         self.name = f'baseline_{realm}'
         self.eval_funcs = eval_funcs
@@ -211,7 +220,7 @@ class baseline_model:
     def _fit(self):
         self.model = np.mean(self.y_train)
 
-    def _predict(self, df):
+    def predict(self, df):
         return [self.model] * len(df)
 
     def _save(self):
@@ -219,7 +228,7 @@ class baseline_model:
             f.write(str(self.model))
 
     def evaluate(self, df):
-        y_pred = self._predict(df)
+        y_pred = self.predict(df)
         out = pd.DataFrame()
         out['y_true'] = df[label]
         out['y_pred'] = y_pred
@@ -250,7 +259,7 @@ class xgb_model(baseline_model):
         overwrite=False,
         seed=42,
     ):
-        if validation_year == 'no':
+        if validation_year == 'none':
             validation_year = 'all'
         self.name = f'xgb_{realm}_{validation_year}'
         self.eval_funcs = eval_funcs
@@ -297,13 +306,13 @@ class xgb_model(baseline_model):
             early_stopping_rounds=10,
         )
 
-    def _predict(self, df):
+    def predict(self, df):
         try:
             ntree_limit = self.model.best_ntree_limit
         except AttributeError:
             ntree_limit = None
 
-        X, y = get_features_and_label(df)
+        X = get_features(df)
         if ntree_limit:
             return self.model.predict(X, iteration_range=(0, ntree_limit))
         else:
@@ -329,7 +338,7 @@ class random_forest_model(baseline_model):
         overwrite=False,
         seed=42,
     ):
-        if validation_year == 'no':
+        if validation_year == 'none':
             validation_year = 'all'
         self.name = f'rf_{realm}_{validation_year}'
         self.eval_funcs = eval_funcs
@@ -369,9 +378,9 @@ class random_forest_model(baseline_model):
     def _save(self):
         save_sklearn_model(self.model, self.model_filename, fs)
 
-    def _predict(self, df):
+    def predict(self, df):
         # df_scaled = transform_df(self.transformers, df)
-        X, y = get_features_and_label(df)
+        X = get_features(df)
         return self.model.predict(X)
 
 
@@ -391,7 +400,7 @@ class gradient_boost_model(baseline_model):
         overwrite=False,
         seed=42,
     ):
-        if validation_year == 'no':
+        if validation_year == 'none':
             validation_year = 'all'
         self.name = f'gb_{realm}_{validation_year}'
         self.eval_funcs = eval_funcs
@@ -419,7 +428,7 @@ class gradient_boost_model(baseline_model):
             self.y_train,
         )
 
-    def _predict(self, df):
+    def predict(self, df):
         # df_scaled = transform_df(self.transformers, df)
         X, y = get_features_and_label(df)
         return self.model.predict(X)

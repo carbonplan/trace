@@ -5,6 +5,7 @@ import boto3
 import dask
 import fsspec
 import numpy as np
+import pandas as pd
 import rasterio as rio
 import rioxarray
 import utm
@@ -14,8 +15,9 @@ from pyproj import CRS
 from rasterio.session import AWSSession
 from s3fs import S3FileSystem
 
+import carbonplan_trace.v1.model as m
+from carbonplan_trace.v1.glas_allometric_eq import ECO_TO_REALM_MAP
 from carbonplan_trace.v1.landsat_preprocess import scene_seasonal_average
-from carbonplan_trace.v1.model import features
 
 from ..v1 import load, utils
 
@@ -100,7 +102,7 @@ def dataset_to_tabular(ds):
     # the landsat scenes might be rotated w.r.t. the x/y grid
     # but will also drop any cloud-masked regions
     # TODO: further investigate %-age of nulls and root cause
-    df = df.dropna().reset_index()
+    df = df.dropna(how='any').reset_index()
     return df
 
 
@@ -129,41 +131,28 @@ def convert_to_lat_lon(df, utm_zone_number, utm_zone_letter):
     return utm.to_latlon(df['x'], df['y'], int(utm_zone_number), utm_zone_letter)
 
 
-def load_xgb_model(model_path, fs):
-    cwd = os.getcwd()
-    if model_path.startswith('s3'):
-        model_name = model_path.split('/')[-1]
-        new_model_path = ('/').join([cwd, model_name])
-        fs.get(model_path, new_model_path)
-        model_path = new_model_path
-
-    model = xgb.XGBRegressor()
-    model.load_model(model_path)
-
-    return model
-
-
 def add_all_variables(data, tiles, year, lat_lon_box=None):
     data = load.aster(data, tiles, lat_lon_box=lat_lon_box)
     data = load.worldclim(data)
-    data = load.igbp(data, tiles, year, lat_lon_box=lat_lon_box)
-    data = load.treecover2000(tiles, data)
+    data = load.treecover2000(data, tiles)
+    data = load.ecoregion(data, tiles, lat_lon_box=lat_lon_box)
+
     return data
 
 
-def make_inference(input_data, model, features):
+def make_inference(input_data, model):
     """
     input_data is assumed to be a pandas dataframe, and model uses standard sklearn API with .predict
     """
-    input_data = input_data.dropna(subset=features)
-    input_data = input_data.loc[(~(input_data.NDVI == np.inf) & ~(input_data.NDII == np.inf))]
+    input_data = input_data.replace([np.nan, np.inf, -np.inf], np.nan)
+    input_data = input_data.dropna(subset=m.features)
     gc.collect()
-    input_data['biomass'] = model.predict(input_data[features])
+    input_data['biomass'] = model.predict(input_data)
     return input_data[['x', 'y', 'biomass']]
 
 
 def predict(
-    model_path,
+    model_folder,
     path,
     row,
     year,
@@ -194,33 +183,73 @@ def predict(
                 aws_session,
                 core_session,
                 fs,
-                write_bucket=None,  #'s3://carbonplan-climatetrace/v1/',
+                write_bucket=None,
                 bands_of_interest='all',
                 landsat_generation='landsat-7',
             )
-            # add in other datasets
-            landsat_zone = landsat_ds.utm_zone_number + landsat_ds.utm_zone_letter
-            # sets null value to np.nan
-            write_nodata(landsat_ds)
-            data, tiles, bounding_box = reproject_dataset_to_fourthousandth_grid(
-                landsat_ds, zone=landsat_zone
-            )
-            del landsat_ds
-            data = add_all_variables(data, tiles, year, lat_lon_box=bounding_box).load()
-            df = dataset_to_tabular(data)
-            del data
-            if input_write_bucket is not None:
-                utils.write_parquet(df, input_write_bucket, access_key_id, secret_access_key)
-            # add realm information
-            # load the correct model for each realm
-            model = load_xgb_model(model_path, fs)
-            prediction = make_inference(df, model, features)
-            del df
-            if output_write_bucket is not None:
-                utils.write_parquet(
-                    prediction, output_write_bucket, access_key_id, secret_access_key
+            if landsat_ds:
+                # reproject from utm to lat/lon
+                landsat_zone = landsat_ds.utm_zone_number + landsat_ds.utm_zone_letter
+                # sets null value to np.nan
+                write_nodata(landsat_ds)
+                data, tiles, bounding_box = reproject_dataset_to_fourthousandth_grid(
+                    landsat_ds, zone=landsat_zone
                 )
-                print(output_write_bucket)
+                del landsat_ds
+
+                # add in other datasets
+                data = add_all_variables(data, tiles, year, lat_lon_box=bounding_box).load()
+                df = dataset_to_tabular(data.drop(['spatial_ref']))
+                df = df.loc[df.ecoregion > 0]
+                df['realm'] = df.ecoregion.apply(ECO_TO_REALM_MAP.__getitem__)
+                del data
+
+                # apply the correct model for each realm
+                if len(df) > 0:
+                    # write input
+                    if input_write_bucket is not None:
+                        utils.write_parquet(
+                            df, input_write_bucket, access_key_id, secret_access_key
+                        )
+                    xgb_result = []
+                    rf_result = []
+                    for realm, sub in df.groupby('realm'):
+                        xgb = m.xgb_model(
+                            realm=realm,
+                            df_train=None,
+                            df_test=None,
+                            output_folder=model_folder,
+                            validation_year='none',
+                            overwrite=False,
+                        )
+                        xgb_result.append(make_inference(sub, xgb))
+
+                        rf = m.random_forest_model(
+                            realm=realm,
+                            df_train=None,
+                            df_test=None,
+                            output_folder=model_folder,
+                            validation_year='none',
+                            overwrite=False,
+                        )
+                        rf_result.append(make_inference(sub, rf))
+
+                    xgb_result = pd.concat(xgb_result)
+                    rf_result = pd.concat(rf_result)
+                    del df
+            else:
+                xgb_result = pd.DataFrame(columns=['x', 'y', 'biomass'])
+                rf_result = pd.DataFrame(columns=['x', 'y', 'biomass'])
+
+            if output_write_bucket is not None:
+                # xgb
+                output_filepath = f'{output_write_bucket}/xgb/{year}/{path:03d}{row:03d}.parquet'
+                utils.write_parquet(xgb_result, output_filepath, access_key_id, secret_access_key)
+
+                # random forest
+                output_filepath = f'{output_write_bucket}/rf/{year}/{path:03d}{row:03d}.parquet'
+                utils.write_parquet(rf_result, output_filepath, access_key_id, secret_access_key)
+                return ('pass', output_filepath)
             else:
                 return prediction
 
