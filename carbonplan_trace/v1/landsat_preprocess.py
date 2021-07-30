@@ -362,7 +362,7 @@ def calc_NIR_V(ds):
     '''
     nir = ds['SR_B4']
     ndvi = ds['NDVI']
-    ds['NIR_V'] = nir * ndvi 
+    ds['NIR_V'] = nir * ndvi
 
     return ds
 
