@@ -1,5 +1,6 @@
 import gc
 import os
+import time
 
 import boto3
 import dask
@@ -148,7 +149,11 @@ def make_inference(input_data, model):
     input_data = input_data.replace([np.nan, np.inf, -np.inf, None], np.nan)
     input_data = input_data.dropna(subset=m.features)
     gc.collect()
+    print(f'predicting on {len(input_data)} records')
+    t0 = time.time()
     input_data['biomass'] = model.predict(input_data)
+    t1 = time.time()
+    print(f'took {round(t1-t0)} seconds')
     return input_data[['x', 'y', 'biomass']]
 
 
@@ -175,6 +180,7 @@ def predict(
     ):  # this? **** #threads #single-threaded # threads??
         with rio.Env(aws_session):
             # create the landsat scene for that year
+            t0 = time.time()
             landsat_ds = scene_seasonal_average(
                 path,
                 row,
@@ -188,6 +194,9 @@ def predict(
                 bands_of_interest='all',
                 landsat_generation='landsat-7',
             )
+            t1 = time.time()
+            print(f'averaging landsat took {round(t1-t0)} seconds')
+            # print('landsat ds', landsat_ds)
             if landsat_ds:
                 # reproject from utm to lat/lon
                 landsat_zone = landsat_ds.utm_zone_number + landsat_ds.utm_zone_letter
@@ -212,18 +221,18 @@ def predict(
                         utils.write_parquet(
                             df, input_write_bucket, access_key_id, secret_access_key
                         )
-                    xgb_result = []
+                    # xgb_result = []
                     rf_result = []
                     for realm, sub in df.groupby('realm'):
-                        xgb = m.xgb_model(
-                            realm=realm,
-                            df_train=None,
-                            df_test=None,
-                            output_folder=model_folder,
-                            validation_year='none',
-                            overwrite=False,
-                        )
-                        xgb_result.append(make_inference(sub, xgb))
+                        # xgb = m.xgb_model(
+                        #     realm=realm,
+                        #     df_train=None,
+                        #     df_test=None,
+                        #     output_folder=model_folder,
+                        #     validation_year='none',
+                        #     overwrite=False,
+                        # )
+                        # xgb_result.append(make_inference(sub, xgb))
 
                         rf = m.random_forest_model(
                             realm=realm,
@@ -235,31 +244,31 @@ def predict(
                         )
                         rf_result.append(make_inference(sub, rf))
 
-                    xgb_result = pd.concat(xgb_result)
+                    # xgb_result = pd.concat(xgb_result)
                     rf_result = pd.concat(rf_result)
                     del df
                 else:
-                    xgb_result = pd.DataFrame(
-                        [[np.nan, np.nan, np.nan]], columns=['x', 'y', 'biomass']
-                    )
+                    # xgb_result = pd.DataFrame(
+                    #     [[np.nan, np.nan, np.nan]], columns=['x', 'y', 'biomass']
+                    # )
                     rf_result = pd.DataFrame(
                         [[np.nan, np.nan, np.nan]], columns=['x', 'y', 'biomass']
                     )
             else:
-                xgb_result = pd.DataFrame([[np.nan, np.nan, np.nan]], columns=['x', 'y', 'biomass'])
+                # xgb_result = pd.DataFrame([[np.nan, np.nan, np.nan]], columns=['x', 'y', 'biomass'])
                 rf_result = pd.DataFrame([[np.nan, np.nan, np.nan]], columns=['x', 'y', 'biomass'])
 
             if output_write_bucket is not None:
-                # xgb
-                output_filepath = f'{output_write_bucket}/xgb/{year}/{path:03d}{row:03d}.parquet'
-                utils.write_parquet(xgb_result, output_filepath, access_key_id, secret_access_key)
+                # # xgb
+                # output_filepath = f'{output_write_bucket}/xgb/{year}/{path:03d}{row:03d}.parquet'
+                # utils.write_parquet(xgb_result, output_filepath, access_key_id, secret_access_key)
 
                 # random forest
                 output_filepath = f'{output_write_bucket}/rf/{year}/{path:03d}{row:03d}.parquet'
                 utils.write_parquet(rf_result, output_filepath, access_key_id, secret_access_key)
                 return ('pass', output_filepath)
             else:
-                return xgb_result
+                return rf_result
 
 
 predict_delayed = dask.delayed(predict)
