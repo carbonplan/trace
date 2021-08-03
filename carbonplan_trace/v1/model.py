@@ -381,7 +381,6 @@ class random_forest_model(baseline_model):
         save_sklearn_model(self.model, self.model_filename, fs)
 
     def predict(self, df):
-        # df_scaled = transform_df(self.transformers, df)
         X = get_features(df)
         return self.model.predict(X)
 
