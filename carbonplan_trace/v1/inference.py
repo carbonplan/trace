@@ -178,46 +178,44 @@ def predict(
 
     with rio.Env(aws_session):
         # create the landsat scene for that year
-        with dask.config.set(
-            scheduler='single-threaded'
-        ):  # this? **** #threads #single-threaded # threads??
-            t0 = time.time()
-            landsat_ds = scene_seasonal_average(
-                path,
-                row,
-                year,
-                access_key_id,
-                secret_access_key,
-                aws_session,
-                core_session,
-                fs,
-                write_bucket=None,
-                bands_of_interest='all',
-                landsat_generation='landsat-7',
-            ).compute(num_workers=1)
-            t1 = time.time()
-            print(f'averaging landsat took {round(t1-t0)} seconds')
-            # print('landsat ds', landsat_ds)
-            if landsat_ds:
-                # reproject from utm to lat/lon
-                landsat_zone = landsat_ds.utm_zone_number + landsat_ds.utm_zone_letter
-                # sets null value to np.nan
-                write_nodata(landsat_ds)
-                data, tiles, bounding_box = reproject_dataset_to_fourthousandth_grid(
-                    landsat_ds, zone=landsat_zone
-                ).compute(num_workers=1)
-                del landsat_ds
+        # with dask.config.set(
+        #     scheduler='single-threaded'
+        # ):  # this? **** #threads #single-threaded # threads??
+        t0 = time.time()
+        landsat_ds = scene_seasonal_average(
+            path,
+            row,
+            year,
+            access_key_id,
+            secret_access_key,
+            aws_session,
+            core_session,
+            fs,
+            write_bucket=None,
+            bands_of_interest='all',
+            landsat_generation='landsat-7',
+        )
+        t1 = time.time()
+        print(f'averaging landsat took {round(t1-t0)} seconds')
+        # print('landsat ds', landsat_ds)
+        if landsat_ds:
+            # reproject from utm to lat/lon
+            landsat_zone = landsat_ds.utm_zone_number + landsat_ds.utm_zone_letter
+            # sets null value to np.nan
+            write_nodata(landsat_ds)
+            data, tiles, bounding_box = reproject_dataset_to_fourthousandth_grid(
+                landsat_ds, zone=landsat_zone
+            )
+            del landsat_ds
 
-                # add in other datasets
-                data = add_all_variables(data, tiles, year, lat_lon_box=bounding_box).compute(
-                    num_workers=1
-                )
-                df = dataset_to_tabular(data.drop(['spatial_ref']))
-                df = df.loc[df.ecoregion > 0]
-                df['realm'] = df.ecoregion.apply(ECO_TO_REALM_MAP.__getitem__)
-                del data
-            else:
-                df = pd.DataFrame({})
+            # add in other datasets
+            data = add_all_variables(data, tiles, year, lat_lon_box=bounding_box).load()
+            df = dataset_to_tabular(data.drop(['spatial_ref']))
+            df = df.loc[df.ecoregion > 0]
+            df['realm'] = df.ecoregion.apply(ECO_TO_REALM_MAP.__getitem__)
+            del data
+        else:
+            df = pd.DataFrame({})
 
         # apply the correct model for each realm
         if len(df) > 0:
