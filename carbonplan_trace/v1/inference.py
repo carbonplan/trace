@@ -5,6 +5,7 @@ import time
 import boto3
 import dask
 import fsspec
+import joblib
 import numpy as np
 import pandas as pd
 import rasterio as rio
@@ -151,7 +152,9 @@ def make_inference(input_data, model):
     gc.collect()
     print(f'predicting on {len(input_data)} records')
     t0 = time.time()
-    input_data['biomass'] = model.predict(input_data)
+    with joblib.parallel_backend('threading', n_jobs=8):
+        model.n_jobs = 8
+        input_data['biomass'] = model.predict(input_data)
     t1 = time.time()
     print(f'took {round(t1-t0)} seconds')
     return input_data[['x', 'y', 'biomass']]
@@ -178,9 +181,7 @@ def predict(
 
     with rio.Env(aws_session):
         # create the landsat scene for that year
-        with dask.config.set(
-            scheduler='single-threaded'
-        ):  # this? **** #threads #single-threaded # threads??
+        with dask.config.set(scheduler='single-threaded'):
             t0 = time.time()
             landsat_ds = scene_seasonal_average(
                 path,
