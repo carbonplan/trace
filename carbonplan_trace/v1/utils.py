@@ -4,12 +4,12 @@ import os
 import awswrangler as wr
 import boto3
 import fsspec
+import geopandas as gpd
 import numpy as np
 import utm
 import xarray as xr
 from pyproj import Transformer
 from s3fs import S3FileSystem
-import geopandas as gpd
 
 
 def save_to_zarr(ds, url, list_of_variables=None, mode='w', append_dim=None):
@@ -248,6 +248,50 @@ def open_burned_area_data(tiles):
     folder = 's3://carbonplan-climatetrace/intermediate/modis_burned_area/'
 
     return open_and_combine_lat_lon_data(folder, tiles)
+
+
+def open_global_igbp_data(lat_lon_box=None):
+    """
+    Load igbp data stored as a global dataset
+    """
+    fs = S3FileSystem()
+    mapper = fs.get_mapper('s3://carbonplan-climatetrace/intermediate/global_igbp.zarr')
+    global_igbp = xr.open_zarr(mapper, consolidated=True)
+
+    if global_igbp.lat[0] > global_igbp.lat[-1]:
+        global_igbp = global_igbp.reindex(lat=global_igbp.lat[::-1])
+    if global_igbp.lon[0] > global_igbp.lon[-1]:
+        global_igbp = global_igbp.reindex(lat=global_igbp.lon[::-1])
+
+    if lat_lon_box:
+        [min_lat, max_lat, min_lon, max_lon] = lat_lon_box
+        global_igbp = global_igbp.sel(lat=slice(min_lat, max_lat), lon=slice(min_lon, max_lon))
+
+    return global_igbp.drop_vars(['spatial_ref'])
+
+
+def open_gez_data():
+    fp = "s3://carbonplan-climatetrace/inputs/shapes/gez_2010_wgs84.shp"
+    gez = gpd.read_file(fp)
+    return gez
+
+
+def preprocess_gez_data():
+    """
+    From FAO GEZ 2010 data, process to get a shapefile with two shapes, one for the tropic and one for
+    anything that is not tropic.
+    """
+    fs = S3FileSystem()
+    gez = open_gez_data()
+    gez['is_tropics'] = gez.gez_name.apply(lambda x: (x.split()[0]) == 'Tropical').astype(np.int8)
+    tropic = gez.dissolve(by='is_tropical')
+    tropic.to_file("tropics.shp")
+    s3_folder = 's3://carbonplan-climatetrace/inputs/shapes/'
+    files = [f'tropics.{ext}' for ext in ['cpg', 'dbf', 'prj', 'shp', 'shx']]
+
+    for f in files:
+        fs.put(f, s3_folder + f)
+        os.remove(f)
 
 
 def write_parquet(df, out_path, access_key_id, secret_access_key):
