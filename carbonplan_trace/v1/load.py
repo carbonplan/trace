@@ -14,6 +14,7 @@ from ..v1 import utils
 # flake8: noqa
 
 fs = S3FileSystem()
+
 WORLDCLIM_SCALING_FACTORS = {
     'BIO01': 100,
     'BIO02': 100,
@@ -200,8 +201,6 @@ def tropics(ds):
     """
     fp = "s3://carbonplan-climatetrace/inputs/shapes/tropics.shp"
     tropics = gpd.read_file(fp)
-    output_da = regionmask.mask_geopandas(
-        tropics, numbers='is_tropica', lon_or_obj=ds
-    )
+    output_da = regionmask.mask_geopandas(tropics, numbers='is_tropica', lon_or_obj=ds)
     ds['is_tropics'] = output_da
     return ds
