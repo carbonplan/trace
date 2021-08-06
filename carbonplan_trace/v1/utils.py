@@ -9,6 +9,7 @@ import utm
 import xarray as xr
 from pyproj import Transformer
 from s3fs import S3FileSystem
+import geopandas as gpd
 
 
 def save_to_zarr(ds, url, list_of_variables=None, mode='w', append_dim=None):
@@ -437,3 +438,14 @@ def verify_projection(coords, projected, zone_number):
             continue
 
     raise Exception('None of the UTM projections match with scene metadata')
+
+
+def grab_all_scenes_in_tile(ul_lat, ul_lon, tile_degree_size=10):
+    gdf = gpd.read_file(
+        "https://prd-wret.s3-us-west-2.amazonaws.com/assets/"
+        "palladium/production/s3fs-public/atoms/files/"
+        "WRS2_descending_0.zip"
+    )
+    scenes_in_tile = gdf.cx[ul_lon : ul_lon + tile_degree_size, ul_lat - tile_degree_size : ul_lat]
+
+    return scenes_in_tile[['PATH', 'ROW']].values

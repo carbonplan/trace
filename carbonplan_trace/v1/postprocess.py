@@ -33,6 +33,7 @@ def turn_point_cloud_to_grid(df, tile_degree_size):
         coords=[lats, lons],
     )
     ds_grid = ds_grid.to_dataset(name="biomass", promote_attrs=True)
+    ds_grid = ds_grid.rename({'x': 'lon', 'y': 'lat'})
     return ds_grid
 
 def trim_ds(ul_lat, ul_lon, tile_degree_size, ds):
@@ -44,3 +45,4 @@ def merge_all_scenes_in_tile(ul_lat, ul_lon, year, tile_degree_size=2):
     ds = turn_point_cloud_to_grid(df, tile_degree_size)
     ds = trim_ds(ul_lat, ul_lon, tile_degree_size, ds)
     return ds
+
