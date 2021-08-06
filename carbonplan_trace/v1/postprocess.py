@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
 import xarray as xr
+from carbonplan_trace.v0.data import cat
+import fsspec 
 
 from ..v1 import load, utils
 
@@ -69,10 +71,11 @@ def initialize_empty_dataset(ul_lat_tag, ul_lon_tag, year0, year1):
     timeseries = xr.concat(ds_list, dim='time')
     timeseries = timeseries.assign_coords({'time':pd.date_range(str(year0), str(year1), freq='A')})
     ds = timeseries.to_dataset(name='AGB')
-    for variable in ['BGB', 'deadwood', 'litter']:
+    for variable in ['BGB', 'dead_wood', 'litter']:
         ds[variable] = ds['AGB']
     mapper = fsspec.get_mapper('s3://carbonplan-climatetrace/v1/results/tiles/{}_{}.zarr'.format(ul_lat_tag, ul_lon_tag))
     ds.to_zarr(mapper, mode='w', compute=False)
+    return mapper
 
 def fill_nulls(ds):
     """
@@ -115,8 +118,8 @@ def calculate_belowground_biomass(ds):
     2. calculate bgb from agb based on power law relationship published by Mokany et al (2006) Eq 1
     "Critical analysis of root: Shoot ratios in terrestrial biomes"
     """
-    ds = ds.rename({'biomass': 'agb'})
-    ds['bgb'] = 0.489 * (ds.agb ** 0.890)
+    ds = ds.rename({'biomass': 'AGB'})
+    ds['BGB'] = 0.489 * (ds.AGB ** 0.890)
 
     return ds
 
@@ -146,39 +149,39 @@ def calculate_dead_wood_and_litter(ds, tiles, lat_lon_box=None):
 
     # tropic, elevation < 2000m, precip < 1000mm
     dead_wood = xr.where(
-        (ds.is_tropics == 1) & (ds.elev < 2000) & (ds.BIO12 < 1000), x=(ds.agb * 0.02), y=dead_wood
+        (ds.is_tropics == 1) & (ds.elev < 2000) & (ds.BIO12 < 1000), x=(ds.AGB * 0.02), y=dead_wood
     )
     litter = xr.where(
-        (ds.is_tropics == 1) & (ds.elev < 2000) & (ds.BIO12 < 1000), x=(ds.agb * 0.04), y=litter
+        (ds.is_tropics == 1) & (ds.elev < 2000) & (ds.BIO12 < 1000), x=(ds.AGB * 0.04), y=litter
     )
 
     # tropic, elevation < 2000m, precip 1000-1600mm
     dead_wood = xr.where(
         (ds.is_tropics == 1) & (ds.elev < 2000) & (ds.BIO12 >= 1000) & (ds.BIO12 < 1600),
-        x=(ds.agb * 0.01),
+        x=(ds.AGB * 0.01),
         y=dead_wood,
     )
     litter = xr.where(
         (ds.is_tropics == 1) & (ds.elev < 2000) & (ds.BIO12 >= 1000) & (ds.BIO12 < 1600),
-        x=(ds.agb * 0.01),
+        x=(ds.AGB * 0.01),
         y=litter,
     )
 
     # tropic, elevation < 2000m, precip > 1600mm
     dead_wood = xr.where(
-        (ds.is_tropics == 1) & (ds.elev < 2000) & (ds.BIO12 >= 1600), x=(ds.agb * 0.06), y=dead_wood
+        (ds.is_tropics == 1) & (ds.elev < 2000) & (ds.BIO12 >= 1600), x=(ds.AGB * 0.06), y=dead_wood
     )
     litter = xr.where(
-        (ds.is_tropics == 1) & (ds.elev < 2000) & (ds.BIO12 >= 1600), x=(ds.agb * 0.01), y=litter
+        (ds.is_tropics == 1) & (ds.elev < 2000) & (ds.BIO12 >= 1600), x=(ds.AGB * 0.01), y=litter
     )
 
     # tropic, elevation >= 2000m
-    dead_wood = xr.where((ds.is_tropics == 1) & (ds.elev >= 2000), x=(ds.agb * 0.07), y=dead_wood)
-    litter = xr.where((ds.is_tropics == 1) & (ds.elev >= 2000), x=(ds.agb * 0.01), y=litter)
+    dead_wood = xr.where((ds.is_tropics == 1) & (ds.elev >= 2000), x=(ds.AGB * 0.07), y=dead_wood)
+    litter = xr.where((ds.is_tropics == 1) & (ds.elev >= 2000), x=(ds.AGB * 0.01), y=litter)
 
     # non tropic
-    dead_wood = xr.where((ds.is_tropics == 0), x=(ds.agb * 0.08), y=dead_wood)
-    litter = xr.where((ds.is_tropics == 0), x=(ds.agb * 0.04), y=litter)
+    dead_wood = xr.where((ds.is_tropics == 0), x=(ds.AGB * 0.08), y=dead_wood)
+    litter = xr.where((ds.is_tropics == 0), x=(ds.AGB * 0.04), y=litter)
 
     ds['dead_wood'] = dead_wood
     ds['litter'] = litter
