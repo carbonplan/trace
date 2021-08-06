@@ -37,12 +37,39 @@ def turn_point_cloud_to_grid(df, tile_degree_size):
     return ds_grid
 
 def trim_ds(ul_lat, ul_lon, tile_degree_size, ds):
-    ds = ds.sel(x=slice(ul_lon, ul_lon+2), y=slice(ul_lat - 2, ul_lat))
+    ds = ds.sel(lon=slice(ul_lon, ul_lon+2), lat=slice(ul_lat - 2, ul_lat))
     return ds
 
 def merge_all_scenes_in_tile(ul_lat, ul_lon, year, tile_degree_size=2):
     df = compile_df_for_tile(ul_lat, ul_lon, year)
     ds = turn_point_cloud_to_grid(df, tile_degree_size)
+    del df
     ds = trim_ds(ul_lat, ul_lon, tile_degree_size, ds)
     return ds
 
+def biomass_tile_timeseries(ul_lat, ul_lon, year0, year1, tile_degree_size=2):
+    ds_list = []
+    for year in np.arange(year0, year1):
+        print(year)
+        ds_list.append(merge_all_scenes_in_tile(ul_lat, ul_lon, year, 
+                            tile_degree_size=tile_degree_size))
+    biomass_timeseries = xr.concat(ds_list, dim='time')
+    biomass_timeseries = biomass_timeseries.assign_coords({'time': pd.date_range(str(year0), str(year1), freq='A')})
+    return biomass_timeseries
+
+def initialize_empty_dataset(ul_lat_tag, ul_lon_tag, year0, year1):
+    
+    sample_hansen_tile = cat.hansen_change(variable='treecover2000', 
+                                       lat=ul_lat_tag, lon=ul_lon_tag).to_dask().drop_vars('band').squeeze()
+    sample_hansen_tile = sample_hansen_tile.rename({'x': 'lon',
+                          'y': 'lat'})
+    ds_list = []
+    for year in np.arange(year0, year1):
+        ds_list.append(sample_hansen_tile)
+    timeseries = xr.concat(ds_list, dim='time')
+    timeseries = timeseries.assign_coords({'time':pd.date_range(str(year0), str(year1), freq='A')})
+    ds = timeseries.to_dataset(name='AGB')
+    for variable in ['BGB', 'deadwood', 'litter']:
+        ds[variable] = ds['AGB']
+    mapper = fsspec.get_mapper('s3://carbonplan-climatetrace/v1/results/tiles/{}_{}.zarr'.format(ul_lat_tag, ul_lon_tag))
+    ds.to_zarr(mapper, mode='w', compute=False)
