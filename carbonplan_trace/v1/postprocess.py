@@ -3,7 +3,7 @@ import fsspec
 import numpy as np
 import pandas as pd
 import xarray as xr
-
+from prefect import task
 from carbonplan_trace.v0.data import cat
 
 from ..v1 import load, utils
@@ -223,7 +223,6 @@ def fillna_mask_and_calc_carbon_pools(data):
     data = data.transpose('time', 'lat', 'lon')
     return data
 
-
 def postprocess_subtile(
     min_lat, min_lon, lat_increment, lon_increment, year0, year1, tile_degree_size, data_mapper
 ):
@@ -254,3 +253,4 @@ def postprocess_subtile(
 
 
 postprocess_delayed = dask.delayed(postprocess_subtile)
+postprocess_task = task(postprocess_subtile)

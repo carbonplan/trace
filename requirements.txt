@@ -8,6 +8,7 @@ intake-geopandas
 intake-xarray
 h5py
 pandas
+prefect
 pytest
 rasterio
 scikit-learn

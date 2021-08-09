@@ -39,6 +39,7 @@ dependencies:
   - oauth2client
   - pandas
   - pre_commit
+  - prefect
   - pykdtree
   - pygeos
   - pygraphviz
