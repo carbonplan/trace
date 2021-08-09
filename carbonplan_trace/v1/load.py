@@ -1,12 +1,12 @@
 from datetime import datetime
 
 import fsspec
+import geopandas as gpd
 import numpy as np
 import pandas as pd
+import regionmask
 import xarray as xr
 from s3fs import S3FileSystem
-import geopandas as gpd
-import regionmask
 
 from carbonplan_trace.v0.data import cat
 from carbonplan_trace.v1.model import features
@@ -54,10 +54,9 @@ def aster(ds, tiles, lat_lon_box=None, dtype='int16'):
         "s3://carbonplan-climatetrace/intermediate/aster/", tiles=tiles, lat_lon_box=lat_lon_box
     )
     if full_aster is not None:
-        selected_aster = (
-            utils.find_matching_records(full_aster, lats=ds.y, lons=ds.x, dtype=dtype)
-            .load()
-        )
+        selected_aster = utils.find_matching_records(
+            full_aster, lats=ds.y, lons=ds.x, dtype=dtype
+        ).load()
         if 'spatial_ref' in selected_aster:
             selected_aster = selected_aster.drop(['spatial_ref'])
         return xr.merge([ds, selected_aster])
@@ -204,6 +203,8 @@ def tropics(ds):
     """
     fp = "s3://carbonplan-climatetrace/inputs/shapes/tropics.shp"
     tropics = gpd.read_file(fp)
-    output_da = regionmask.mask_geopandas(tropics, numbers='is_tropica', lon_or_obj=ds, lon_name='x', lat_name='y')
+    output_da = regionmask.mask_geopandas(
+        tropics, numbers='is_tropica', lon_or_obj=ds, lon_name='x', lat_name='y'
+    )
     ds['is_tropics'] = output_da
     return ds
