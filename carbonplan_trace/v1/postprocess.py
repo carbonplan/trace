@@ -13,8 +13,11 @@ def compile_df_for_tile(ul_lat, ul_lon, year, tile_degree_size=2):
         f's3://carbonplan-climatetrace/v1/inference/rf/{year}/{path:03d}{row:03d}.parquet'
         for [path, row] in scene_ids
     ]
+    print(len(list_of_parquet_paths))
     dfs = [pd.read_parquet(f's3://{path}') for path in list_of_parquet_paths]
+    print('all read')
     compiled_df = pd.concat(dfs)
+    print('all compiled')
     return compiled_df
 
 
@@ -33,17 +36,18 @@ def turn_point_cloud_to_grid(df, tile_degree_size):
         coords=[lats, lons],
     )
     ds_grid = ds_grid.to_dataset(name="biomass", promote_attrs=True)
-    ds_grid = ds_grid.rename({'x': 'lon', 'y': 'lat'})
     return ds_grid
 
 
 def trim_ds(ul_lat, ul_lon, tile_degree_size, ds):
-    ds = ds.sel(lon=slice(ul_lon, ul_lon+2), lat=slice(ul_lat - 2, ul_lat))
+    ds = ds.sel(x=slice(ul_lon, ul_lon+2), y=slice(ul_lat - 2, ul_lat))
     return ds
 
 
 def merge_all_scenes_in_tile(ul_lat, ul_lon, year, tile_degree_size=2):
+    print('compiling')
     df = compile_df_for_tile(ul_lat, ul_lon, year)
+    print('clouding')
     ds = turn_point_cloud_to_grid(df, tile_degree_size)
     del df
     ds = trim_ds(ul_lat, ul_lon, tile_degree_size, ds)
@@ -87,14 +91,13 @@ def fill_nulls(ds):
     """
     min_biomass = ds.biomass.min().values
     max_biomass = ds.biomass.max().values
-    ds = ds.interpolate_na(dim='time', method='linear', fill_value="extrapolate")
-    ds = ds.interpolate_na(dim='lon', method='linear', fill_value="extrapolate")
-    ds = ds.interpolate_na(dim='lat', method='linear', fill_value="extrapolate")
+    ds = ds.interpolate_na(dim='time', method='linear')#, bounds_error=False)
+    ds = ds.interpolate_na(dim='x', method='linear', fill_value="extrapolate")
+    ds = ds.interpolate_na(dim='y', method='linear', fill_value="extrapolate")
 
     ds['biomass'] = ds.biomass.clip(min=min_biomass, max=max_biomass)
 
     return ds
-
 
 def apply_forest_mask(biomass_ds, lat_lon_box=None):
     """
@@ -105,7 +108,7 @@ def apply_forest_mask(biomass_ds, lat_lon_box=None):
     igbp = utils.open_global_igbp_data(lat_lon_box=lat_lon_box)
     forest_mask = igbp.igbp.isin([1, 2, 3, 4, 5, 8, 9]).any(dim='year')
     biomass_ds['forest_mask'] = utils.find_matching_records(
-        data=forest_mask, lats=biomass_ds.lat, lons=biomass_ds.lon
+        data=forest_mask, lats=biomass_ds.y, lons=biomass_ds.x
     )
     biomass_ds = biomass_ds.where(biomass_ds.forest_mask)
 
@@ -138,13 +141,13 @@ def calculate_dead_wood_and_litter(ds, tiles, lat_lon_box=None):
 
     dead_wood = xr.DataArray(
         0,
-        dims=['lat', 'lon', 'year'],
-        coords=[ds.coords['lat'], ds.coords['lon'], ds.coords['year']],
+        dims=['y', 'x', 'time'],
+        coords=[ds.coords['y'], ds.coords['x'], ds.coords['time']],
     )
     litter = xr.DataArray(
         0,
-        dims=['lat', 'lon', 'year'],
-        coords=[ds.coords['lat'], ds.coords['lon'], ds.coords['year']],
+        dims=['y', 'x', 'time'],
+        coords=[ds.coords['y'], ds.coords['x'], ds.coords['time']],
     )
 
     # tropic, elevation < 2000m, precip < 1000mm
@@ -194,10 +197,10 @@ def fillna_mask_and_calc_carbon_pools(data):
     input = 3D merged result with lat, lon, year and biomass being the only data variable
     output = input data with more data variables for other carbon pools, with nulls filled and masked with forest land cover
     """
-    min_lat = data.lat.min().values
-    max_lat = data.lat.max().values
-    min_lon = data.lon.min().values
-    max_lon = data.lon.max().values
+    min_lat = data.y.min().values
+    max_lat = data.y.max().values
+    min_lon = data.x.min().values
+    max_lon = data.x.max().values
     lat_lon_box = min_lat, max_lat, min_lon, max_lon
     # get lat lon tags
     tiles = utils.find_tiles_for_bounding_box(min_lat, max_lat, min_lon, max_lon)
@@ -206,5 +209,6 @@ def fillna_mask_and_calc_carbon_pools(data):
     data = apply_forest_mask(data, lat_lon_box=lat_lon_box)
     data = calculate_belowground_biomass(data)
     data = calculate_dead_wood_and_litter(data, tiles, lat_lon_box)
-
+    data = data.rename({'x': 'lon', 'y': 'lat'})
+    data = data.transpose('time', 'lat', 'lon')
     return data
