@@ -3,7 +3,7 @@ import pandas as pd
 import xarray as xr
 from carbonplan_trace.v0.data import cat
 import fsspec 
-
+import dask
 from ..v1 import load, utils
 
 
@@ -13,11 +13,8 @@ def compile_df_for_tile(ul_lat, ul_lon, year, tile_degree_size=2):
         f's3://carbonplan-climatetrace/v1/inference/rf/{year}/{path:03d}{row:03d}.parquet'
         for [path, row] in scene_ids
     ]
-    print(len(list_of_parquet_paths))
     dfs = [pd.read_parquet(f's3://{path}') for path in list_of_parquet_paths]
-    print('all read')
     compiled_df = pd.concat(dfs)
-    print('all compiled')
     return compiled_df
 
 
@@ -45,9 +42,7 @@ def trim_ds(ul_lat, ul_lon, tile_degree_size, ds):
 
 
 def merge_all_scenes_in_tile(ul_lat, ul_lon, year, tile_degree_size=2):
-    print('compiling')
     df = compile_df_for_tile(ul_lat, ul_lon, year)
-    print('clouding')
     ds = turn_point_cloud_to_grid(df, tile_degree_size)
     del df
     ds = trim_ds(ul_lat, ul_lon, tile_degree_size, ds)
@@ -63,7 +58,7 @@ def biomass_tile_timeseries(ul_lat, ul_lon, year0, year1, tile_degree_size=2):
     biomass_timeseries = biomass_timeseries.assign_coords({'time': pd.date_range(str(year0), str(year1), freq='A')})
     return biomass_timeseries
 
-def initialize_empty_dataset(ul_lat_tag, ul_lon_tag, year0, year1):
+def initialize_empty_dataset(ul_lat_tag, ul_lon_tag, year0, year1, write_tile_metadata=True):
     
     sample_hansen_tile = cat.hansen_change(variable='treecover2000', 
                                        lat=ul_lat_tag, lon=ul_lon_tag).to_dask().drop_vars('band').squeeze()
@@ -78,7 +73,8 @@ def initialize_empty_dataset(ul_lat_tag, ul_lon_tag, year0, year1):
     for variable in ['BGB', 'dead_wood', 'litter']:
         ds[variable] = ds['AGB']
     mapper = fsspec.get_mapper('s3://carbonplan-climatetrace/v1/results/tiles/{}_{}.zarr'.format(ul_lat_tag, ul_lon_tag))
-    ds.to_zarr(mapper, mode='w', compute=False)
+    if write_tile_metadata:
+        ds.to_zarr(mapper, mode='w', compute=False)
     return mapper
 
 def fill_nulls(ds):
@@ -212,3 +208,23 @@ def fillna_mask_and_calc_carbon_pools(data):
     data = data.rename({'x': 'lon', 'y': 'lat'})
     data = data.transpose('time', 'lat', 'lon')
     return data
+
+def postprocess_subtile(min_lat, min_lon, lat_increment, lon_increment,
+                        year0, year1, tile_degree_size, data_mapper):
+    subtile_ul_lat = min_lat+lat_increment+tile_degree_size
+    subtile_ul_lon = min_lon+lon_increment
+
+    ds = biomass_tile_timeseries(subtile_ul_lat,
+                                subtile_ul_lon, 
+                                year0, year1, 
+                                tile_degree_size=tile_degree_size)
+    # add all other postprocessing
+    ds = fillna_mask_and_calc_carbon_pools(ds.load())
+    # write out
+    ds.to_zarr(mapper, mode='a', region={"lat": slice(lat_increment*4000, (lat_increment+tile_degree_size)*4000),
+                                        'lon': slice(lon_increment*4000, (lon_increment+tile_degree_size)*4000),
+                                        'time': slice(0, year1-year0)})
+    
+    # log_file_mapper = fsspec.get_mapper(f's3://carbonplan-climatetrace/v1/postprocess_log/{min_lat}_{min_lon}_{lat_increment}_{lon_increment}.txt')
+
+postprocess_delayed = dask.delayed(postprocess_subtile)
