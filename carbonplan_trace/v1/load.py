@@ -1,8 +1,10 @@
 from datetime import datetime
 
 import fsspec
+import geopandas as gpd
 import numpy as np
 import pandas as pd
+import regionmask
 import xarray as xr
 from s3fs import S3FileSystem
 
@@ -14,6 +16,7 @@ from ..v1 import utils
 # flake8: noqa
 
 fs = S3FileSystem()
+
 WORLDCLIM_SCALING_FACTORS = {
     'BIO01': 100,
     'BIO02': 100,
@@ -51,11 +54,11 @@ def aster(ds, tiles, lat_lon_box=None, dtype='int16'):
         "s3://carbonplan-climatetrace/intermediate/aster/", tiles=tiles, lat_lon_box=lat_lon_box
     )
     if full_aster is not None:
-        selected_aster = (
-            utils.find_matching_records(full_aster, lats=ds.y, lons=ds.x, dtype=dtype)
-            .load()
-            .drop(['spatial_ref'])
-        )
+        selected_aster = utils.find_matching_records(
+            full_aster, lats=ds.y, lons=ds.x, dtype=dtype
+        ).load()
+        if 'spatial_ref' in selected_aster:
+            selected_aster = selected_aster.drop(['spatial_ref'])
         return xr.merge([ds, selected_aster])
     else:
         empty_da = xr.DataArray(np.nan, dims=['x', 'y'], coords=[ds.coords['x'], ds.coords['y']])
@@ -192,3 +195,16 @@ def training(realm, y0=2003, y1=2010, reload=False, access_key_id=None, secret_a
         output = pd.concat(output)
         utils.write_parquet(output, output_filename, access_key_id, secret_access_key)
         return output
+
+
+def tropics(ds):
+    """
+    tropics is either 1 or 0 (not boolean)
+    """
+    fp = "s3://carbonplan-climatetrace/inputs/shapes/tropics.shp"
+    tropics = gpd.read_file(fp)
+    output_da = regionmask.mask_geopandas(
+        tropics, numbers='is_tropica', lon_or_obj=ds, lon_name='x', lat_name='y'
+    )
+    ds['is_tropics'] = output_da
+    return ds

@@ -181,17 +181,6 @@ def add_parquet_urls(df):
     return df
 
 
-def grab_all_scenes_in_tile(ul_lat, ul_lon):
-    gdf = gpd.read_file(
-        "https://prd-wret.s3-us-west-2.amazonaws.com/assets/"
-        "palladium/production/s3fs-public/atoms/files/"
-        "WRS2_descending_0.zip"
-    )
-    scenes_in_tile = gdf.cx[ul_lon : ul_lon + 10, ul_lat - 10 : ul_lat]
-
-    return scenes_in_tile
-
-
 def find_pertinent_scenes_for_shots(lat_tag, lon_tag, scenes_in_tile_gdf):
 
     file_mapper = fs.get_mapper(
