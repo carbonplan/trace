@@ -225,9 +225,16 @@ def fillna_mask_and_calc_carbon_pools(data):
     return data
 
 
-def postprocess_subtile(
-    min_lat, min_lon, lat_increment, lon_increment, year0, year1, tile_degree_size, data_mapper
-):
+def postprocess_subtile(parameters_dict):
+    min_lat = parameters_dict['MIN_LAT']
+    min_lon = parameters_dict['MIN_LON']
+    lat_increment = parameters_dict['LAT_INCREMENT']
+    lon_increment = parameters_dict['LON_INCREMENT']
+    year0 = parameters_dict['YEAR_0']
+    year1 = parameters_dict['YEAR_1']
+    tile_degree_size = parameters_dict['TILE_DEGREE_SIZE']
+    data_mapper = parameters_dict['DATA_MAPPER']
+
     subtile_ul_lat = min_lat + lat_increment + tile_degree_size
     subtile_ul_lon = min_lon + lon_increment
 
