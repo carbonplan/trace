@@ -228,14 +228,9 @@ def fillna_mask_and_calc_carbon_pools(data):
     return data
 
 
-def write_to_log(string, log_path, access_key_id, secret_access_key):
-    s3 = boto3.resource(
-        's3',
-        region_name='us-west-2',
-        aws_access_key_id=access_key_id,
-        aws_secret_access_key=secret_access_key,
-    )
-    s3.Object('carbonplan-climatetrace', log_path).put(Body=string)
+def write_to_log(log_path, access_key_id, secret_access_key):
+    df = pd.DataFrame(index=['a'], columns=['b'])
+    utils.write_parquet(df, log_path, access_key_id, secret_access_key)
 
 
 def postprocess_subtile(parameters_dict):
@@ -260,8 +255,8 @@ def postprocess_subtile(parameters_dict):
     )
     aws_session = AWSSession(core_session, requester_pays=True)
 
-    log_path = f'v1/postprocess_log/{min_lat}_{min_lon}_{lat_increment}_{lon_increment}.txt'
-    write_to_log('beginning', log_path, access_key_id, secret_access_key)
+    log_path = f's3://carbonplan-climatetrace/v1/postprocess_log/{min_lat}_{min_lon}_{lat_increment}_{lon_increment}.txt'
+    write_to_log(log_path, access_key_id, secret_access_key)
 
     ds = biomass_tile_timeseries(
         subtile_ul_lat, subtile_ul_lon, year0, year1, tile_degree_size=tile_degree_size
