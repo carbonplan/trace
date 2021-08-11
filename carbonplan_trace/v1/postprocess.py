@@ -227,6 +227,7 @@ def fillna_mask_and_calc_carbon_pools(data):
     data = data.transpose('time', 'lat', 'lon')
     return data
 
+
 def write_to_log(string, log_path, access_key_id, secret_access_key):
     fs = fsspec.get_filesystem_class('s3')(key=access_key_id, secret=secret_access_key)
     with fs.open(log_path, 'w') as f:
