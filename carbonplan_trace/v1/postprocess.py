@@ -276,8 +276,8 @@ def postprocess_subtile(parameters_dict):
             },
         )
 
-    write_to_log('all done!', log_path, access_key_id, secret_access_key)
+    write_to_log(log_path, access_key_id, secret_access_key)
 
 
 postprocess_delayed = dask.delayed(postprocess_subtile)
-postprocess_task = task(postprocess_subtile)
+postprocess_task = task(postprocess_subtile, tags=["dask-resource:workertoken=1"])
