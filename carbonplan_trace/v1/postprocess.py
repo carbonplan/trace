@@ -227,14 +227,16 @@ def fillna_mask_and_calc_carbon_pools(data):
     data = data.transpose('time', 'lat', 'lon')
     return data
 
+
 def write_to_log(string, log_path, access_key_id, secret_access_key):
     s3 = boto3.resource(
-    's3',
-    region_name='us-west-2',
-    aws_access_key_id=KEY_ID,
-    aws_secret_access_key=ACCESS_KEY
+        's3',
+        region_name='us-west-2',
+        aws_access_key_id=access_key_id,
+        aws_secret_access_key=secret_access_key,
     )
     s3.Object('carbonplan-climatetrace', log_path).put(Body=string)
+
 
 def postprocess_subtile(parameters_dict):
     min_lat = parameters_dict['MIN_LAT']
@@ -278,7 +280,6 @@ def postprocess_subtile(parameters_dict):
         )
 
     write_to_log('all done!', log_path, access_key_id, secret_access_key)
-
 
 
 postprocess_delayed = dask.delayed(postprocess_subtile)
