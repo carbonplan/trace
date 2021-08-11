@@ -227,10 +227,10 @@ def fillna_mask_and_calc_carbon_pools(data):
     data = data.transpose('time', 'lat', 'lon')
     return data
 
-
-def write_to_log(log_path, access_key_id, secret_access_key):
-    df = pd.DataFrame(index=['a'], columns=['b'])
-    utils.write_parquet(df, log_path, access_key_id, secret_access_key)
+def write_to_log(string, log_path, access_key_id, secret_access_key):
+    fs = fsspec.get_filesystem_class('s3')(key=access_key_id, secret=secret_access_key)
+    with fs.open(log_path, 'w') as f:
+        f.write(string)
 
 
 def postprocess_subtile(parameters_dict):
@@ -256,7 +256,7 @@ def postprocess_subtile(parameters_dict):
     aws_session = AWSSession(core_session, requester_pays=True)
 
     log_path = f's3://carbonplan-climatetrace/v1/postprocess_log/{min_lat}_{min_lon}_{lat_increment}_{lon_increment}.txt'
-    write_to_log(log_path, access_key_id, secret_access_key)
+    write_to_log('beginning', log_path, access_key_id, secret_access_key)
 
     ds = biomass_tile_timeseries(
         subtile_ul_lat, subtile_ul_lon, year0, year1, tile_degree_size=tile_degree_size
@@ -276,7 +276,7 @@ def postprocess_subtile(parameters_dict):
             },
         )
 
-    write_to_log(log_path, access_key_id, secret_access_key)
+    write_to_log('done', log_path, access_key_id, secret_access_key)
 
 
 postprocess_delayed = dask.delayed(postprocess_subtile)
