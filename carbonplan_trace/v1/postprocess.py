@@ -1,9 +1,12 @@
+import boto3
 import dask
 import fsspec
 import numpy as np
 import pandas as pd
+import rasterio as rio
 import xarray as xr
 from prefect import task
+from rasterio.session import AWSSession
 
 from carbonplan_trace.v0.data import cat
 
@@ -234,25 +237,34 @@ def postprocess_subtile(parameters_dict):
     year1 = parameters_dict['YEAR_1']
     tile_degree_size = parameters_dict['TILE_DEGREE_SIZE']
     data_mapper = parameters_dict['DATA_MAPPER']
+    access_key_id = parameters_dict['ACCESS_KEY_ID']
+    secret_access_key = parameters_dict['SECRET_ACCESS_KEY']
 
     subtile_ul_lat = min_lat + lat_increment + tile_degree_size
     subtile_ul_lon = min_lon + lon_increment
 
+    core_session = boto3.Session(
+        aws_access_key_id=access_key_id,
+        aws_secret_access_key=secret_access_key,
+        region_name='us-west-2',
+    )
+    aws_session = AWSSession(core_session, requester_pays=True)
     ds = biomass_tile_timeseries(
         subtile_ul_lat, subtile_ul_lon, year0, year1, tile_degree_size=tile_degree_size
     )
     # add all other postprocessing
     ds = fillna_mask_and_calc_carbon_pools(ds.load())
     # write out
-    ds.to_zarr(
-        data_mapper,
-        mode='a',
-        region={
-            "lat": slice(lat_increment * 4000, (lat_increment + tile_degree_size) * 4000),
-            'lon': slice(lon_increment * 4000, (lon_increment + tile_degree_size) * 4000),
-            'time': slice(0, year1 - year0),
-        },
-    )
+    with rio.Env(aws_session):
+        ds.to_zarr(
+            data_mapper,
+            mode='a',
+            region={
+                "lat": slice(lat_increment * 4000, (lat_increment + tile_degree_size) * 4000),
+                'lon': slice(lon_increment * 4000, (lon_increment + tile_degree_size) * 4000),
+                'time': slice(0, year1 - year0),
+            },
+        )
 
     with fsspec.open(
         's3://carbonplan-climatetrace/v1/postprocess_log/{min_lat}_{min_lon}_{lat_increment}_{lon_increment}.txt',
