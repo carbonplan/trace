@@ -259,11 +259,13 @@ def postprocess_subtile(parameters_dict):
         region_name='us-west-2',
     )
     aws_session = AWSSession(core_session, requester_pays=True)
+
+    log_path = 's3://carbonplan-climatetrace/v1/postprocess_log/{min_lat}_{min_lon}_{lat_increment}_{lon_increment}.txt'
+    write_to_log('beginning', log_path, access_key_id, secret_access_key)
+
     ds = biomass_tile_timeseries(
         subtile_ul_lat, subtile_ul_lon, year0, year1, tile_degree_size=tile_degree_size
     )
-    log_path = 's3://carbonplan-climatetrace/v1/postprocess_log/{min_lat}_{min_lon}_{lat_increment}_{lon_increment}.txt'
-    write_to_log('beginning', log_path, access_key_id, secret_access_key)
 
     # add all other postprocessing
     ds = fillna_mask_and_calc_carbon_pools(ds.load())
