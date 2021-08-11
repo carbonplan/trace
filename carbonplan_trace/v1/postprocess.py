@@ -260,7 +260,7 @@ def postprocess_subtile(parameters_dict):
     )
     aws_session = AWSSession(core_session, requester_pays=True)
 
-    log_path = 's3://carbonplan-climatetrace/v1/postprocess_log/{min_lat}_{min_lon}_{lat_increment}_{lon_increment}.txt'
+    log_path = f'v1/postprocess_log/{min_lat}_{min_lon}_{lat_increment}_{lon_increment}.txt'
     write_to_log('beginning', log_path, access_key_id, secret_access_key)
 
     ds = biomass_tile_timeseries(
