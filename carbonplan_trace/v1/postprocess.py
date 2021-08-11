@@ -1,12 +1,9 @@
-import boto3
 import dask
 import fsspec
 import numpy as np
 import pandas as pd
-import rasterio as rio
 import xarray as xr
 from prefect import task
-from rasterio.session import AWSSession
 
 from carbonplan_trace.v0.data import cat
 
@@ -86,12 +83,11 @@ def initialize_empty_dataset(ul_lat_tag, ul_lon_tag, year0, year1, write_tile_me
     ds = timeseries.to_dataset(name='AGB')
     for variable in ['BGB', 'dead_wood', 'litter']:
         ds[variable] = ds['AGB']
-    mapper = fsspec.get_mapper(
-        's3://carbonplan-climatetrace/v1/results/tiles/{}_{}.zarr'.format(ul_lat_tag, ul_lon_tag)
-    )
+    path = 's3://carbonplan-climatetrace/v1/results/tiles/{}_{}.zarr'.format(ul_lat_tag, ul_lon_tag)
+    mapper = fsspec.get_mapper(path)
     if write_tile_metadata:
         ds.to_zarr(mapper, mode='w', compute=False)
-    return mapper
+    return path
 
 
 def fill_nulls(ds):
@@ -242,22 +238,19 @@ def postprocess_subtile(parameters_dict):
     year0 = parameters_dict['YEAR_0']
     year1 = parameters_dict['YEAR_1']
     tile_degree_size = parameters_dict['TILE_DEGREE_SIZE']
-    data_mapper = parameters_dict['DATA_MAPPER']
+    data_path = parameters_dict['DATA_PATH']
     access_key_id = parameters_dict['ACCESS_KEY_ID']
     secret_access_key = parameters_dict['SECRET_ACCESS_KEY']
 
     subtile_ul_lat = min_lat + lat_increment + tile_degree_size
     subtile_ul_lon = min_lon + lon_increment
 
-    core_session = boto3.Session(
-        aws_access_key_id=access_key_id,
-        aws_secret_access_key=secret_access_key,
-        region_name='us-west-2',
-    )
-    aws_session = AWSSession(core_session, requester_pays=True)
-
     log_path = f's3://carbonplan-climatetrace/v1/postprocess_log/{min_lat}_{min_lon}_{lat_increment}_{lon_increment}.txt'
     write_to_log('beginning', log_path, access_key_id, secret_access_key)
+    # we initialize the fs here to ensure that the worker has the correct permissions
+    # in order to write
+    fs = fsspec.get_filesystem_class('s3')(key=access_key_id, secret=secret_access_key)
+    data_mapper = fs.get_mapper(data_path)
 
     ds = biomass_tile_timeseries(
         subtile_ul_lat, subtile_ul_lon, year0, year1, tile_degree_size=tile_degree_size
@@ -266,16 +259,16 @@ def postprocess_subtile(parameters_dict):
     # add all other postprocessing
     ds = fillna_mask_and_calc_carbon_pools(ds.load())
     # write out
-    with rio.Env(aws_session):
-        ds.to_zarr(
-            data_mapper,
-            mode='a',
-            region={
-                "lat": slice(lat_increment * 4000, (lat_increment + tile_degree_size) * 4000),
-                'lon': slice(lon_increment * 4000, (lon_increment + tile_degree_size) * 4000),
-                'time': slice(0, year1 - year0),
-            },
-        )
+
+    ds.to_zarr(
+        data_mapper,
+        mode='a',
+        region={
+            "lat": slice(lat_increment * 4000, (lat_increment + tile_degree_size) * 4000),
+            'lon': slice(lon_increment * 4000, (lon_increment + tile_degree_size) * 4000),
+            'time': slice(0, year1 - year0),
+        },
+    )
 
     write_to_log('done', log_path, access_key_id, secret_access_key)
 
