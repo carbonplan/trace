@@ -1,9 +1,12 @@
+import boto3
 import dask
 import fsspec
 import numpy as np
 import pandas as pd
+import rasterio as rio
 import xarray as xr
 from prefect import task
+from rasterio.session import AWSSession
 
 from carbonplan_trace.v0.data import cat
 
@@ -244,9 +247,13 @@ def postprocess_subtile(parameters_dict):
 
     subtile_ul_lat = min_lat + lat_increment + tile_degree_size
     subtile_ul_lon = min_lon + lon_increment
-
+    core_session = boto3.Session(
+        aws_access_key_id=access_key_id,
+        aws_secret_access_key=secret_access_key,
+        region_name='us-west-2',
+    )
+    aws_session = AWSSession(core_session, requester_pays=True)
     log_path = f's3://carbonplan-climatetrace/v1/postprocess_log/{min_lat}_{min_lon}_{lat_increment}_{lon_increment}.txt'
-    write_to_log('beginning', log_path, access_key_id, secret_access_key)
     # we initialize the fs here to ensure that the worker has the correct permissions
     # in order to write
     fs = fsspec.get_filesystem_class('s3')(key=access_key_id, secret=secret_access_key)
@@ -255,20 +262,20 @@ def postprocess_subtile(parameters_dict):
     ds = biomass_tile_timeseries(
         subtile_ul_lat, subtile_ul_lon, year0, year1, tile_degree_size=tile_degree_size
     )
+    with rio.Env(aws_session):
+        # add all other postprocessing
+        ds = fillna_mask_and_calc_carbon_pools(ds.load())
+        # write out
 
-    # add all other postprocessing
-    ds = fillna_mask_and_calc_carbon_pools(ds.load())
-    # write out
-
-    ds.to_zarr(
-        data_mapper,
-        mode='a',
-        region={
-            "lat": slice(lat_increment * 4000, (lat_increment + tile_degree_size) * 4000),
-            'lon': slice(lon_increment * 4000, (lon_increment + tile_degree_size) * 4000),
-            'time': slice(0, year1 - year0),
-        },
-    )
+        ds.to_zarr(
+            data_mapper,
+            mode='a',
+            region={
+                "lat": slice(lat_increment * 4000, (lat_increment + tile_degree_size) * 4000),
+                'lon': slice(lon_increment * 4000, (lon_increment + tile_degree_size) * 4000),
+                'time': slice(0, year1 - year0),
+            },
+        )
 
     write_to_log('done', log_path, access_key_id, secret_access_key)
 
