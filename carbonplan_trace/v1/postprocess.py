@@ -83,12 +83,11 @@ def initialize_empty_dataset(ul_lat_tag, ul_lon_tag, year0, year1, write_tile_me
     ds = timeseries.to_dataset(name='AGB')
     for variable in ['BGB', 'dead_wood', 'litter']:
         ds[variable] = ds['AGB']
-    mapper = fsspec.get_mapper(
-        's3://carbonplan-climatetrace/v1/results/tiles/{}_{}.zarr'.format(ul_lat_tag, ul_lon_tag)
-    )
+    path = 's3://carbonplan-climatetrace/v1/results/tiles/{}_{}.zarr'.format(ul_lat_tag, ul_lon_tag)
+    mapper = fsspec.get_mapper(path)
     if write_tile_metadata:
         ds.to_zarr(mapper, mode='w', compute=False)
-    return mapper
+    return path
 
 
 def fill_nulls(ds):
@@ -225,6 +224,12 @@ def fillna_mask_and_calc_carbon_pools(data):
     return data
 
 
+def write_to_log(string, log_path, access_key_id, secret_access_key):
+    fs = fsspec.get_filesystem_class('s3')(key=access_key_id, secret=secret_access_key)
+    with fs.open(log_path, 'w') as f:
+        f.write(string)
+
+
 def postprocess_subtile(parameters_dict):
     min_lat = parameters_dict['MIN_LAT']
     min_lon = parameters_dict['MIN_LON']
@@ -233,17 +238,28 @@ def postprocess_subtile(parameters_dict):
     year0 = parameters_dict['YEAR_0']
     year1 = parameters_dict['YEAR_1']
     tile_degree_size = parameters_dict['TILE_DEGREE_SIZE']
-    data_mapper = parameters_dict['DATA_MAPPER']
+    data_path = parameters_dict['DATA_PATH']
+    access_key_id = parameters_dict['ACCESS_KEY_ID']
+    secret_access_key = parameters_dict['SECRET_ACCESS_KEY']
 
     subtile_ul_lat = min_lat + lat_increment + tile_degree_size
     subtile_ul_lon = min_lon + lon_increment
 
+    log_path = f's3://carbonplan-climatetrace/v1/postprocess_log/{min_lat}_{min_lon}_{lat_increment}_{lon_increment}.txt'
+    write_to_log('beginning', log_path, access_key_id, secret_access_key)
+    # we initialize the fs here to ensure that the worker has the correct permissions
+    # in order to write
+    fs = fsspec.get_filesystem_class('s3')(key=access_key_id, secret=secret_access_key)
+    data_mapper = fs.get_mapper(data_path)
+
     ds = biomass_tile_timeseries(
         subtile_ul_lat, subtile_ul_lon, year0, year1, tile_degree_size=tile_degree_size
     )
+
     # add all other postprocessing
     ds = fillna_mask_and_calc_carbon_pools(ds.load())
     # write out
+
     ds.to_zarr(
         data_mapper,
         mode='a',
@@ -254,12 +270,8 @@ def postprocess_subtile(parameters_dict):
         },
     )
 
-    with fsspec.open(
-        's3://carbonplan-climatetrace/v1/postprocess_log/{min_lat}_{min_lon}_{lat_increment}_{lon_increment}.txt',
-        mode='w',
-    ) as f:
-        f.write('done')
+    write_to_log('done', log_path, access_key_id, secret_access_key)
 
 
 postprocess_delayed = dask.delayed(postprocess_subtile)
-postprocess_task = task(postprocess_subtile)
+postprocess_task = task(postprocess_subtile, tags=["dask-resource:workertoken=1"])
