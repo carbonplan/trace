@@ -43,7 +43,9 @@ def turn_point_cloud_to_grid(df, tile_degree_size):
 
 
 def trim_ds(ul_lat, ul_lon, tile_degree_size, ds):
-    ds = ds.sel(x=slice(ul_lon, ul_lon + 2), y=slice(ul_lat - 2, ul_lat))
+    ds = ds.sel(
+        x=slice(ul_lon, ul_lon + tile_degree_size), y=slice(ul_lat - tile_degree_size, ul_lat)
+    )
     return ds
 
 
@@ -78,6 +80,10 @@ def initialize_empty_dataset(ul_lat_tag, ul_lon_tag, year0, year1, write_tile_me
         .squeeze()
     )
     sample_hansen_tile = sample_hansen_tile.rename({'x': 'lon', 'y': 'lat'})
+    # sample tiles have lats in descending order- we'll reorder them to make the
+    # index-location-based region to_zarr writing at the end of the post-processing
+    # more straightforward
+    sample_hansen_tile = sample_hansen_tile.reindex(lat=sample_hansen_tile.lat[::-1])
     ds_list = []
     for year in np.arange(year0, year1):
         ds_list.append(sample_hansen_tile)
@@ -201,7 +207,7 @@ def calculate_dead_wood_and_litter(ds, tiles, lat_lon_box=None):
 
     ds['dead_wood'] = dead_wood
     ds['litter'] = litter
-
+    ds = ds[['AGB', 'BGB', 'dead_wood', 'litter']]
     return ds
 
 
