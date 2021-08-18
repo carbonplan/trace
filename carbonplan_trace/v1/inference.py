@@ -57,6 +57,7 @@ def check_mins_maxes(ds):
 
 def create_target_grid(min_lat, max_lat, min_lon, max_lon):
     tiles = utils.find_tiles_for_bounding_box(min_lat, max_lat, min_lon, max_lon)
+    print('tiles', tiles)
     full_target_ds = utils.open_and_combine_lat_lon_data(
         's3://carbonplan-climatetrace/intermediate/ecoregions_mask/',
         tiles=tiles,
@@ -69,19 +70,40 @@ def create_target_grid(min_lat, max_lat, min_lon, max_lon):
         y=slice(min_lat - buffer, max_lat + buffer), x=slice(min_lon - buffer, max_lon + buffer)
     )
     target.attrs["crs"] = "EPSG:4326"
+    del full_target_ds
     return target, tiles
 
 
 def reproject_dataset_to_fourthousandth_grid(ds, zone=None):
+    print('writing crs')
     ds = write_crs_dataset(ds, zone=zone)
+    print('checking mins and maxes')
     min_lat, max_lat, min_lon, max_lon = check_mins_maxes(ds)
-    target, tiles = create_target_grid(min_lat, max_lat, min_lon, max_lon)
-    # the numbers aren't too big but if we normalize they might turn into decimals
-    reprojected = ds.rio.reproject_match(target).compute()
-    del ds
-    del target
-    reprojected = reprojected.where(reprojected < 1e100)
-    return reprojected, tiles, [min_lat, max_lat, min_lon, max_lon]
+    print('creating target grid')
+    if max_lon >= 170 and min_lon <= -170:
+        target_east, tiles_east = create_target_grid(min_lat, max_lat, max_lon, 180)
+        reprojected_east = ds.rio.reproject_match(target_east).compute()
+        reprojected_east = reprojected_east.where(reprojected_east < 1e100)
+        del target_east 
+
+        target_west, tiles_west = create_target_grid(min_lat, max_lat, -180, min_lon)
+        reprojected_west = ds.rio.reproject_match(target_west).compute()
+        reprojected_west = reprojected_west.where(reprojected_west < 1e100)
+        del target_west
+
+        return [reprojected_east, reprojected_west], [tiles_east, tiles_west], [[min_lat, max_lat, max_lon, 180], [min_lat, max_lat, -180, min_lon]]
+
+    else:
+        target, tiles = create_target_grid(min_lat, max_lat, min_lon, max_lon)
+        print('target', target)
+        print('ds', ds)
+        # the numbers aren't too big but if we normalize they might turn into decimals
+        reprojected = ds.rio.reproject_match(target).compute()
+        del ds
+        del target
+        print('reprojected', reprojected)
+        reprojected = reprojected.where(reprojected < 1e100)
+        return [reprojected], [tiles], [[min_lat, max_lat, min_lon, max_lon]]
 
 
 def dataset_to_tabular(ds):
@@ -201,24 +223,30 @@ def predict(
             )
             t1 = time.time()
             print(f'averaging landsat took {round(t1-t0)} seconds')
-            # print('landsat ds', landsat_ds)
             if landsat_ds:
                 # reproject from utm to lat/lon
                 landsat_zone = landsat_ds.utm_zone_number + landsat_ds.utm_zone_letter
                 # sets null value to np.nan
                 write_nodata(landsat_ds)
                 print('reprojecting')
-                data, tiles, bounding_box = reproject_dataset_to_fourthousandth_grid(
+                print('landsat ds', landsat_ds)
+
+                data_list, tiles_list, bounding_box_list = reproject_dataset_to_fourthousandth_grid(
                     landsat_ds.astype('float32'), zone=landsat_zone
                 )
                 del landsat_ds
 
-                # add in other datasets
-                data = add_all_variables(data, tiles, year, lat_lon_box=bounding_box).load()
-                df = dataset_to_tabular(data.drop(['spatial_ref']))
+                dfs = []
+                for data, tiles, bounding_box in zip(data_list, tiles_list, bounding_box_list):
+                    # add in other datasets
+                    data = add_all_variables(data, tiles, year, lat_lon_box=bounding_box).load()
+                    df = dataset_to_tabular(data.drop(['spatial_ref']))   
+                    dfs.append(df)
+                    del df
+                    del data
+                df = pd.concat(dfs)
                 df = df.loc[df.ecoregion > 0]
                 df['realm'] = df.ecoregion.apply(ECO_TO_REALM_MAP.__getitem__)
-                del data
             else:
                 df = pd.DataFrame({})
 
