@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, datetime as time
 
 import fsspec
 import geopandas as gpd
@@ -45,7 +45,7 @@ WORLDCLIM_SCALING_FACTORS = {
 }
 
 
-def aster(ds, tiles, lat_lon_box=None, dtype='int16'):
+def aster(ds, tiles, lat_lon_box=None, dtype='int16', chunks_dict=None):
     '''
     Note: ds must have coordinates as x/y and not lon/lat (have different names)
     otherwise the coordinates in the selection
@@ -57,6 +57,8 @@ def aster(ds, tiles, lat_lon_box=None, dtype='int16'):
         selected_aster = utils.find_matching_records(
             full_aster, lats=ds.y, lons=ds.x, dtype=dtype
         ).load()
+        if chunks_dict is not None:
+            selected_aster = selected_aster.chunk(chunks_dict)
         if 'spatial_ref' in selected_aster:
             selected_aster = selected_aster.drop(['spatial_ref'])
         return xr.merge([ds, selected_aster])
@@ -67,7 +69,7 @@ def aster(ds, tiles, lat_lon_box=None, dtype='int16'):
         return ds
 
 
-def worldclim(ds, dtype='int16'):
+def worldclim(ds, dtype='int16', chunks_dict=None):
     mapper = fs.get_mapper(
         's3://carbonplan-climatetrace/v1/data/intermediates/annual_averaged_worldclim.zarr'
     )
@@ -82,6 +84,8 @@ def worldclim(ds, dtype='int16'):
         worldclim_subset, ds.y, ds.x, dtype=dtype
     ).load()
     all_vars = worldclim_subset.data_vars
+    if chunks_dict is not None:
+        worldclim_reprojected = worldclim_reprojected.chunk(chunks_dict)
 
     for var in all_vars:
         ds[var] = worldclim_reprojected[var]
@@ -197,7 +201,7 @@ def training(realm, y0=2003, y1=2010, reload=False, access_key_id=None, secret_a
         return output
 
 
-def tropics(ds):
+def tropics(ds, chunks_dict):
     """
     tropics is either 1 or 0 (not boolean)
     """
@@ -206,5 +210,5 @@ def tropics(ds):
     output_da = regionmask.mask_geopandas(
         tropics, numbers='is_tropica', lon_or_obj=ds, lon_name='x', lat_name='y'
     )
-    ds['is_tropics'] = output_da
+    ds['is_tropics'] = output_da.chunk(chunks_dict)
     return ds
