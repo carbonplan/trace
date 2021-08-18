@@ -53,11 +53,11 @@ def convert_long3_to_long1(long3):
     return long1
 
 
-def open_zarr_file(uri, file_system='s3'):
+def open_zarr_file(uri, file_system='s3', consolidated=None):
     if not uri.startswith(f'{file_system}://'):
         uri = f'{file_system}://{uri}'
     mapper = fsspec.get_mapper(uri)
-    ds = xr.open_zarr(mapper)
+    ds = xr.open_zarr(mapper, consolidated=consolidated)
     return ds
 
 
@@ -164,7 +164,7 @@ def align_coords_by_dim_groups(ds_list, dim):
     return out
 
 
-def open_and_combine_lat_lon_data(folder, tiles=None, lat_lon_box=None):
+def open_and_combine_lat_lon_data(folder, tiles=None, lat_lon_box=None, consolidated=None):
     """
     Load lat lon data stored as 10x10 degree tiles in folder
     If tiles is none, load all data available
@@ -183,7 +183,7 @@ def open_and_combine_lat_lon_data(folder, tiles=None, lat_lon_box=None):
     ds_list = []
     for uri in uris:
         if fs.exists(uri):
-            da = open_zarr_file(uri)
+            da = open_zarr_file(uri, consolidated=consolidated)
             # sort lat/lon
             if da.lat[0] > da.lat[-1]:
                 da = da.reindex(lat=da.lat[::-1])
@@ -204,7 +204,7 @@ def open_and_combine_lat_lon_data(folder, tiles=None, lat_lon_box=None):
             ds_list = align_coords_by_dim_groups(ds_list, dim)
 
         ds = xr.combine_by_coords(ds_list, combine_attrs="drop_conflicts")
-        return ds.chunk({'lat': 2000, 'lon': 2000})
+        return ds  #.chunk({'lat': 2000, 'lon': 2000})
 
     return None
 

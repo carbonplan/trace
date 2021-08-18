@@ -61,6 +61,7 @@ def create_target_grid(min_lat, max_lat, min_lon, max_lon):
         's3://carbonplan-climatetrace/intermediate/ecoregions_mask/',
         tiles=tiles,
         lat_lon_box=[min_lat, max_lat, min_lon, max_lon],
+        consolidated=False
     )
     full_target_ds = full_target_ds.rename({'lat': 'y', 'lon': 'x'})
     buffer = 0.01
@@ -76,9 +77,10 @@ def reproject_dataset_to_fourthousandth_grid(ds, zone=None):
     min_lat, max_lat, min_lon, max_lon = check_mins_maxes(ds)
     target, tiles = create_target_grid(min_lat, max_lat, min_lon, max_lon)
     # the numbers aren't too big but if we normalize they might turn into decimals
-    reprojected = ds.rio.reproject_match(target).load()
-    reprojected = reprojected.where(reprojected < 1e100)
+    reprojected = ds.rio.reproject_match(target).compute()
     del ds
+    del target
+    reprojected = reprojected.where(reprojected < 1e100)
     return reprojected, tiles, [min_lat, max_lat, min_lon, max_lon]
 
 
@@ -183,6 +185,7 @@ def predict(
         # create the landsat scene for that year
         with dask.config.set(scheduler='single-threaded'):
             t0 = time.time()
+            print('averaging')
             landsat_ds = scene_seasonal_average(
                 path,
                 row,
@@ -204,8 +207,9 @@ def predict(
                 landsat_zone = landsat_ds.utm_zone_number + landsat_ds.utm_zone_letter
                 # sets null value to np.nan
                 write_nodata(landsat_ds)
+                print('reprojecting')
                 data, tiles, bounding_box = reproject_dataset_to_fourthousandth_grid(
-                    landsat_ds, zone=landsat_zone
+                    landsat_ds.astype('float32'), zone=landsat_zone
                 )
                 del landsat_ds
 
