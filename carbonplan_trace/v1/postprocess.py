@@ -23,19 +23,20 @@ def compile_df_for_tile(ul_lat, ul_lon, year, tile_degree_size=2):
     dfs = []
     for path in list_of_parquet_paths:
         temp = pd.read_parquet(f's3://{path}').round(6)
+        temp = temp.loc[
+            (temp.y >= ul_lat - tile_degree_size)
+        & (temp.y <= ul_lat)
+        & (temp.x >= ul_lon)
+        & (temp.x <= ul_lon + tile_degree_size)
+                ]
         temp['biomass'] = temp.biomass.astype('float32')
         dfs.append(temp)
         del temp
 
     compiled_df = pd.concat(dfs)
-    compiled_df['biomass'] = compiled_df['biomass'].astype('float32')  # convert to float32
     del dfs
-    compiled_df = compiled_df.loc[
-        (compiled_df.y >= ul_lat - tile_degree_size)
-        & (compiled_df.y <= ul_lat)
-        & (compiled_df.x >= ul_lon)
-        & (compiled_df.x <= ul_lon + tile_degree_size)
-    ]
+    compiled_df['biomass'] = compiled_df['biomass'].astype('float32')  # convert to float32
+
     return compiled_df
 
 
