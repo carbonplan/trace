@@ -15,20 +15,21 @@ from ..v1 import load, utils
 
 def compile_df_for_tile(ul_lat, ul_lon, year, tile_degree_size=2):
     scene_ids = utils.grab_all_scenes_in_tile(ul_lat, ul_lon, tile_degree_size=tile_degree_size)
+    print('reading')
     list_of_parquet_paths = [
         f's3://carbonplan-climatetrace/v1/inference/rf/{year}/{path:03d}{row:03d}.parquet'
         for [path, row] in scene_ids
     ]
-    dfs = [pd.read_parquet(f's3://{path}').round(6) for path in list_of_parquet_paths]
+    scaling_factor = 100
+    dfs = [(pd.read_parquet(f's3://{path}')*scaling_factor).astype('float32').round(4) for path in list_of_parquet_paths]
 
     compiled_df = pd.concat(dfs)
-    compiled_df['biomass'] = compiled_df['biomass'].astype('float32')  # convert to float32
     del dfs
     compiled_df = compiled_df.loc[
-        (compiled_df.y >= ul_lat - tile_degree_size)
-        & (compiled_df.y <= ul_lat)
-        & (compiled_df.x >= ul_lon)
-        & (compiled_df.x <= ul_lon + tile_degree_size)
+        (compiled_df.y >= ul_lat*scaling_factor - tile_degree_size*scaling_factor)
+        & (compiled_df.y <= ul_lat*scaling_factor)
+        & (compiled_df.x >= ul_lon*scaling_factor)
+        & (compiled_df.x <= ul_lon*scaling_factor + tile_degree_size*scaling_factor)
     ]
     return compiled_df
 
@@ -37,14 +38,15 @@ def turn_point_cloud_to_grid(df, ul_lat, ul_lon, tile_degree_size):
     df.x = df.x.round(6)
     df.y = df.y.round(6)
     pixel_size = 0.00025
+    scaling_factor=100
     lats = np.arange(
-        ul_lat - tile_degree_size + pixel_size / 2, ul_lat - pixel_size / 2, pixel_size
-    ).round(6)
+        ul_lat*scaling_factor - tile_degree_size*scaling_factor + pixel_size*scaling_factor / 2, ul_lat*scaling_factor - pixel_size*scaling_factor / 2, pixel_size*scaling_factor
+    ).round(4)
     lons = np.arange(
-        ul_lon + pixel_size / 2, ul_lon + tile_degree_size - pixel_size / 2, pixel_size
-    ).round(6)
+        ul_lon*scaling_factor + pixel_size*scaling_factor / 2, ul_lon*scaling_factor + tile_degree_size*scaling_factor - pixel_size*scaling_factor / 2, pixel_size*scaling_factor
+    ).round(4)
     df = df.groupby(['x', 'y']).mean().reset_index()
-
+    print(df.head)
     pivot = df.pivot(columns="x", index="y", values="biomass")
     del df
     reindexed = pivot.reindex(index=lats, columns=lons)
@@ -52,8 +54,11 @@ def turn_point_cloud_to_grid(df, ul_lat, ul_lon, tile_degree_size):
     ds_grid = xr.DataArray(
         data=reindexed.values,
         dims=["y", "x"],
-        coords=[lats, lons],
+        coords=[lats.astype('float64')/scaling_factor, lons.astype('float64')/scaling_factor],
     ).astype('float32')
+    print(ds_grid)
+    print(ds_grid.y.values)
+    print(ds_grid.x.values)
     del reindexed
     ds_grid = ds_grid.to_dataset(name="biomass", promote_attrs=True)
     return ds_grid
