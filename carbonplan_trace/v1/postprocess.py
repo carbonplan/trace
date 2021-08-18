@@ -19,7 +19,13 @@ def compile_df_for_tile(ul_lat, ul_lon, year, tile_degree_size=2):
         f's3://carbonplan-climatetrace/v1/inference/rf/{year}/{path:03d}{row:03d}.parquet'
         for [path, row] in scene_ids
     ]
-    dfs = [pd.read_parquet(f's3://{path}').round(6) for path in list_of_parquet_paths]
+    
+    dfs = []
+    for path in list_of_parquet_paths:
+        temp = pd.read_parquet(f's3://{path}').round(6)
+        temp['biomass'] = temp.biomass.astype('float32')
+        dfs.append(temp)
+        del temp
 
     compiled_df = pd.concat(dfs)
     compiled_df['biomass'] = compiled_df['biomass'].astype('float32')  # convert to float32
