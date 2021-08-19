@@ -9,9 +9,9 @@ import rasterio as rio
 import rioxarray  # for the extension to load
 import utm
 import xarray as xr
+from botocore.exceptions import ClientError
 from rasterio.session import AWSSession
 from s3fs import S3FileSystem
-from botocore.exceptions import ClientError
 
 from .utils import spans_utm_border, verify_projection
 
@@ -97,7 +97,7 @@ def grab_ds(item, bands_of_interest, cog_mask, utm_zone, utm_letter):
     da_list = []
     for url in url_list:
         da_list.append(rioxarray.open_rasterio(url, chunks={'x': 1024, 'y': 1024}))
-    
+
     if len(url_list) > 0:
         assert len(da_list) > 0
     # combine into one dataset
@@ -431,7 +431,7 @@ def scene_seasonal_average(
             ds_list.append(grab_ds(url, bands_of_interest, cog_mask, utm_zone, utm_letter))
         except (rio.errors.RasterioIOError, ClientError) as ex:
             print(f'skipping raster {url}')
-            continue 
+            continue
 
     if len(ds_list) > 0:
         seasonal_average = average_stack_of_scenes(ds_list)
