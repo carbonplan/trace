@@ -57,20 +57,23 @@ def check_mins_maxes(ds):
 
 def create_target_grid(min_lat, max_lat, min_lon, max_lon):
     tiles = utils.find_tiles_for_bounding_box(min_lat, max_lat, min_lon, max_lon)
-    full_target_ds = utils.open_and_combine_lat_lon_data(
-        's3://carbonplan-climatetrace/intermediate/ecoregions_mask/',
-        tiles=tiles,
-        lat_lon_box=[min_lat, max_lat, min_lon, max_lon],
-        consolidated=False,
-    )
-    full_target_ds = full_target_ds.rename({'lat': 'y', 'lon': 'x'})
-    buffer = 0.01
-    target = full_target_ds.sel(
-        y=slice(min_lat - buffer, max_lat + buffer), x=slice(min_lon - buffer, max_lon + buffer)
-    )
-    target.attrs["crs"] = "EPSG:4326"
-    del full_target_ds
-    return target, tiles
+    if len(tiles) > 0:
+        full_target_ds = utils.open_and_combine_lat_lon_data(
+            's3://carbonplan-climatetrace/intermediate/ecoregions_mask/',
+            tiles=tiles,
+            lat_lon_box=[min_lat, max_lat, min_lon, max_lon],
+            consolidated=False,
+        )
+        full_target_ds = full_target_ds.rename({'lat': 'y', 'lon': 'x'})
+        buffer = 0.01
+        target = full_target_ds.sel(
+            y=slice(min_lat - buffer, max_lat + buffer), x=slice(min_lon - buffer, max_lon + buffer)
+        )
+        target.attrs["crs"] = "EPSG:4326"
+        del full_target_ds
+        return target, tiles
+    else:
+        return None, []
 
 
 def reproject_dataset_to_fourthousandth_grid(ds, zone=None):
