@@ -74,9 +74,10 @@ def worldclim(ds, dtype='int16', chunks_dict=None):
         's3://carbonplan-climatetrace/v1/data/intermediates/annual_averaged_worldclim.zarr'
     )
     worldclim_ds = xr.open_zarr(mapper, consolidated=True)
+    buffer = 0.1
     worldclim_subset = worldclim_ds.sel(
-        lon=slice(float(ds.x.min().values), float(ds.x.max().values)),
-        lat=slice(float(ds.y.max().values), float(ds.y.min().values)),
+        lon=slice(float(ds.x.min().values) - buffer, float(ds.x.max().values) + buffer),
+        lat=slice(float(ds.y.max().values) + buffer, float(ds.y.min().values) - buffer),
     ).load()
     for var in WORLDCLIM_SCALING_FACTORS.keys():
         worldclim_subset[var] = worldclim_subset[var] * WORLDCLIM_SCALING_FACTORS[var]
