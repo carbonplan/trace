@@ -61,7 +61,7 @@ def create_target_grid(min_lat, max_lat, min_lon, max_lon):
         's3://carbonplan-climatetrace/intermediate/ecoregions_mask/',
         tiles=tiles,
         lat_lon_box=[min_lat, max_lat, min_lon, max_lon],
-        consolidated=False
+        consolidated=False,
     )
     full_target_ds = full_target_ds.rename({'lat': 'y', 'lon': 'x'})
     buffer = 0.01
@@ -80,23 +80,23 @@ def reproject_dataset_to_fourthousandth_grid(ds, zone=None):
         data_list, tiles_list, bounding_box_list = [], [], []
 
         target_east, tiles_east = create_target_grid(min_lat, max_lat, max_lon, 180)
-        if len(tiles_east > 0):
+        if len(tiles_east) > 0:
             reprojected_east = ds.rio.reproject_match(target_east).compute()
             reprojected_east = reprojected_east.where(reprojected_east < 1e100)
             data_list.append(reprojected_east)
             tiles_list.append(tiles_east)
             bounding_box_list.append([min_lat, max_lat, max_lon, 180])
-        del target_east 
+        del target_east
 
         target_west, tiles_west = create_target_grid(min_lat, max_lat, -180, min_lon)
-        if len(tiles_west > 0):
+        if len(tiles_west) > 0:
             reprojected_west = ds.rio.reproject_match(target_west).compute()
             reprojected_west = reprojected_west.where(reprojected_west < 1e100)
             data_list.append(reprojected_west)
             tiles_list.append(tiles_west)
             bounding_box_list.append([min_lat, max_lat, -180, min_lon])
         del target_west
-            
+
         return data_list, tiles_list, bounding_box_list
 
     else:
@@ -242,7 +242,7 @@ def predict(
                 for data, tiles, bounding_box in zip(data_list, tiles_list, bounding_box_list):
                     # add in other datasets
                     data = add_all_variables(data, tiles, year, lat_lon_box=bounding_box).load()
-                    df = dataset_to_tabular(data.drop(['spatial_ref']))   
+                    df = dataset_to_tabular(data.drop(['spatial_ref']))
                     dfs.append(df)
                     del df
                     del data
