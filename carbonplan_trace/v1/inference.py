@@ -57,7 +57,6 @@ def check_mins_maxes(ds):
 
 def create_target_grid(min_lat, max_lat, min_lon, max_lon):
     tiles = utils.find_tiles_for_bounding_box(min_lat, max_lat, min_lon, max_lon)
-    print('tiles', tiles)
     full_target_ds = utils.open_and_combine_lat_lon_data(
         's3://carbonplan-climatetrace/intermediate/ecoregions_mask/',
         tiles=tiles,
@@ -75,11 +74,8 @@ def create_target_grid(min_lat, max_lat, min_lon, max_lon):
 
 
 def reproject_dataset_to_fourthousandth_grid(ds, zone=None):
-    print('writing crs')
     ds = write_crs_dataset(ds, zone=zone)
-    print('checking mins and maxes')
     min_lat, max_lat, min_lon, max_lon = check_mins_maxes(ds)
-    print('creating target grid')
     if max_lon >= 170 and min_lon <= -170:
         data_list, tiles_list, bounding_box_list = [], [], []
 
@@ -105,13 +101,10 @@ def reproject_dataset_to_fourthousandth_grid(ds, zone=None):
 
     else:
         target, tiles = create_target_grid(min_lat, max_lat, min_lon, max_lon)
-        print('target', target)
-        print('ds', ds)
         # the numbers aren't too big but if we normalize they might turn into decimals
         reprojected = ds.rio.reproject_match(target).compute()
         del ds
         del target
-        print('reprojected', reprojected)
         reprojected = reprojected.where(reprojected < 1e100)
         return [reprojected], [tiles], [[min_lat, max_lat, min_lon, max_lon]]
 
@@ -168,13 +161,9 @@ def convert_to_lat_lon(df, utm_zone_number, utm_zone_letter):
 
 
 def add_all_variables(data, tiles, year, lat_lon_box=None):
-    print('loading aster')
     data = load.aster(data, tiles, lat_lon_box=lat_lon_box)
-    print('loading worldclim')
     data = load.worldclim(data)
-    print('loading treecover')
     data = load.treecover2000(data, tiles)
-    print('loading ecoregion')
     data = load.ecoregion(data, tiles, lat_lon_box=lat_lon_box)
 
     return data
@@ -243,7 +232,6 @@ def predict(
                 # sets null value to np.nan
                 write_nodata(landsat_ds)
                 print('reprojecting')
-                print('landsat ds', landsat_ds)
 
                 data_list, tiles_list, bounding_box_list = reproject_dataset_to_fourthousandth_grid(
                     landsat_ds.astype('float32'), zone=landsat_zone
@@ -253,9 +241,7 @@ def predict(
                 dfs = []
                 for data, tiles, bounding_box in zip(data_list, tiles_list, bounding_box_list):
                     # add in other datasets
-                    print('adding variables')
                     data = add_all_variables(data, tiles, year, lat_lon_box=bounding_box).load()
-                    print('to tabular')
                     df = dataset_to_tabular(data.drop(['spatial_ref']))   
                     dfs.append(df)
                     del df

@@ -72,8 +72,6 @@ def worldclim(ds, dtype='int16'):
         's3://carbonplan-climatetrace/v1/data/intermediates/annual_averaged_worldclim.zarr'
     )
     worldclim_ds = xr.open_zarr(mapper, consolidated=True)
-    print(float(ds.x.min().values), float(ds.x.max().values))
-    print(float(ds.y.max().values), float(ds.y.min().values))
     buffer = 0.1
     worldclim_subset = worldclim_ds.sel(
         lon=slice(float(ds.x.min().values) - buffer, float(ds.x.max().values) + buffer),
