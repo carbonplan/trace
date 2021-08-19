@@ -7,11 +7,16 @@ import rasterio as rio
 import xarray as xr
 from prefect import task
 from rasterio.session import AWSSession
-
+import os
 from carbonplan_trace.v0.data import cat
 
 from ..v1 import load, utils
 
+def _set_thread_settings():
+    """helper function to disable numba and openmp multi-threading"""
+    os.environ['OMP_NUM_THREADS'] = '1'
+
+dask.config.set({"array.slicing.split_large_chunks": False})
 
 def compile_df_for_tile(ul_lat, ul_lon, year, tile_degree_size=2):
     scene_ids = utils.grab_all_scenes_in_tile(ul_lat, ul_lon, tile_degree_size=tile_degree_size)
@@ -297,6 +302,8 @@ def postprocess_subtile(parameters_dict):
         region_name='us-west-2',
     )
 
+    _set_thread_settings()
+
     aws_session = AWSSession(core_session, requester_pays=True)
     log_path = f's3://carbonplan-climatetrace/v1/postprocess_log/{min_lat}_{min_lon}_{lat_increment}_{lon_increment}.txt'
     # we initialize the fs here to ensure that the worker has the correct permissions
@@ -319,18 +326,79 @@ def postprocess_subtile(parameters_dict):
         for v in ds.data_vars:
             if 'chunks' in ds[v].encoding:
                 del ds[v].encoding['chunks']
-        ds.to_zarr(
-            data_mapper,
-            mode='a',
-            region={
-                "lat": slice(lat_increment * 4000, (lat_increment + tile_degree_size) * 4000),
-                'lon': slice(lon_increment * 4000, (lon_increment + tile_degree_size) * 4000),
-                'time': slice(0, year1 - year0),
-            },
-        )
+        with dask.config.set(scheduler='single-threaded'):
+            task = ds.to_zarr(
+                data_mapper,
+                mode='a',
+                region={
+                    "lat": slice(lat_increment * 4000, (lat_increment + tile_degree_size) * 4000),
+                    'lon': slice(lon_increment * 4000, (lon_increment + tile_degree_size) * 4000),
+                    'time': slice(0, year1 - year0),
+                },
+            compute=False)
+            task.compute(retries=10)
 
     write_to_log('done', log_path, access_key_id, secret_access_key)
 
 
 postprocess_delayed = dask.delayed(postprocess_subtile)
 postprocess_task = task(postprocess_subtile, tags=["dask-resource:workertoken=1"])
+
+def test_to_zarr(parameters_dict):
+
+    min_lat = parameters_dict['MIN_LAT']
+    min_lon = parameters_dict['MIN_LON']
+    lat_increment = parameters_dict['LAT_INCREMENT']
+    lon_increment = parameters_dict['LON_INCREMENT']
+    year0 = parameters_dict['YEAR_0']
+    year1 = parameters_dict['YEAR_1']
+    tile_degree_size = parameters_dict['TILE_DEGREE_SIZE']
+    data_path = parameters_dict['DATA_PATH']
+    access_key_id = parameters_dict['ACCESS_KEY_ID']
+    secret_access_key = parameters_dict['SECRET_ACCESS_KEY']
+    chunks_dict = parameters_dict['CHUNKS_DICT']
+
+    subtile_ul_lat = min_lat + lat_increment + tile_degree_size
+    subtile_ul_lon = min_lon + lon_increment
+    core_session = boto3.Session(
+        aws_access_key_id=access_key_id,
+        aws_secret_access_key=secret_access_key,
+        region_name='us-west-2',
+    )
+
+    _set_thread_settings()
+
+    aws_session = AWSSession(core_session, requester_pays=True)
+    log_path = f's3://carbonplan-climatetrace/v1/postprocess_log/{min_lat}_{min_lon}_{lat_increment}_{lon_increment}.txt'
+    # we initialize the fs here to ensure that the worker has the correct permissions
+    # in order to write
+    fs = fsspec.get_filesystem_class('s3')(key=access_key_id, secret=secret_access_key)
+    data_mapper = fs.get_mapper(data_path)
+
+    with rio.Env(aws_session):
+
+        da = xr.DataArray(np.ones((8000,8000,2)), coords = {'lat': np.arange(40,40.80, .0001), 
+                                                            'lon': np.arange(-120,-119.200, .0001),
+                            'time': [2014, 2015]},
+                    dims=('lat', 'lon', 'time'))
+        ds = da.to_dataset(name='AGB')
+        ds = ds.transpose('time', 'lat', 'lon')
+        for variable in ['BGB', 'dead_wood', 'litter']:
+            ds[variable] = ds['AGB']
+
+        ds = ds.chunk({'lat': 4000, 'lon': 4000, 'time': 1})
+        for v in ds.data_vars:
+            if 'chunks' in ds[v].encoding:
+                del ds[v].encoding['chunks']
+        with dask.config.set(scheduler='single-threaded'):
+            task = ds.to_zarr(
+                data_mapper,
+                mode='a',
+                region={
+                    "lat": slice(lat_increment * 4000, (lat_increment + tile_degree_size) * 4000),
+                    'lon': slice(lon_increment * 4000, (lon_increment + tile_degree_size) * 4000),
+                    'time': slice(0, year1 - year0),
+                },compute=False)
+            task.compute(retries=10)
+
+task_test_to_zarr = task(test_to_zarr, tags=["dask-resource:workertoken=1"])
