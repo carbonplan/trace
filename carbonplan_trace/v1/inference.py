@@ -81,17 +81,27 @@ def reproject_dataset_to_fourthousandth_grid(ds, zone=None):
     min_lat, max_lat, min_lon, max_lon = check_mins_maxes(ds)
     print('creating target grid')
     if max_lon >= 170 and min_lon <= -170:
+        data_list, tiles_list, bounding_box_list = [], [], []
+
         target_east, tiles_east = create_target_grid(min_lat, max_lat, max_lon, 180)
-        reprojected_east = ds.rio.reproject_match(target_east).compute()
-        reprojected_east = reprojected_east.where(reprojected_east < 1e100)
+        if len(tiles_east > 0):
+            reprojected_east = ds.rio.reproject_match(target_east).compute()
+            reprojected_east = reprojected_east.where(reprojected_east < 1e100)
+            data_list.append(reprojected_east)
+            tiles_list.append(tiles_east)
+            bounding_box_list.append([min_lat, max_lat, max_lon, 180])
         del target_east 
 
         target_west, tiles_west = create_target_grid(min_lat, max_lat, -180, min_lon)
-        reprojected_west = ds.rio.reproject_match(target_west).compute()
-        reprojected_west = reprojected_west.where(reprojected_west < 1e100)
+        if len(tiles_west > 0):
+            reprojected_west = ds.rio.reproject_match(target_west).compute()
+            reprojected_west = reprojected_west.where(reprojected_west < 1e100)
+            data_list.append(reprojected_west)
+            tiles_list.append(tiles_west)
+            bounding_box_list.append([min_lat, max_lat, -180, min_lon])
         del target_west
-
-        return [reprojected_east, reprojected_west], [tiles_east, tiles_west], [[min_lat, max_lat, max_lon, 180], [min_lat, max_lat, -180, min_lon]]
+            
+        return data_list, tiles_list, bounding_box_list
 
     else:
         target, tiles = create_target_grid(min_lat, max_lat, min_lon, max_lon)
@@ -158,9 +168,13 @@ def convert_to_lat_lon(df, utm_zone_number, utm_zone_letter):
 
 
 def add_all_variables(data, tiles, year, lat_lon_box=None):
+    print('loading aster')
     data = load.aster(data, tiles, lat_lon_box=lat_lon_box)
+    print('loading worldclim')
     data = load.worldclim(data)
+    print('loading treecover')
     data = load.treecover2000(data, tiles)
+    print('loading ecoregion')
     data = load.ecoregion(data, tiles, lat_lon_box=lat_lon_box)
 
     return data
@@ -239,7 +253,9 @@ def predict(
                 dfs = []
                 for data, tiles, bounding_box in zip(data_list, tiles_list, bounding_box_list):
                     # add in other datasets
+                    print('adding variables')
                     data = add_all_variables(data, tiles, year, lat_lon_box=bounding_box).load()
+                    print('to tabular')
                     df = dataset_to_tabular(data.drop(['spatial_ref']))   
                     dfs.append(df)
                     del df

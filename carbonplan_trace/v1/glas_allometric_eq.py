@@ -52,7 +52,8 @@ ECOREGIONS_GROUPINGS = {
         (
             np.arange(376, 382),
             np.arange(412, 416),
-            np.array([383, 419]),
+            np.arange(417, 420),
+            np.array([383]),
         ),
         axis=None,
     ),
