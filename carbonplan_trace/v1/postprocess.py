@@ -102,32 +102,36 @@ def biomass_tile_timeseries(ul_lat, ul_lon, year0, year1, tile_degree_size=2):
 
 
 def initialize_empty_dataset(ul_lat_tag, ul_lon_tag, year0, year1, write_tile_metadata=True):
-
-    sample_hansen_tile = (
-        cat.hansen_change(variable='treecover2000', lat=ul_lat_tag, lon=ul_lon_tag)
-        .to_dask()
-        .drop_vars('band')
-        .squeeze()
-    )
-    sample_hansen_tile = sample_hansen_tile.rename({'x': 'lon', 'y': 'lat'})
-    # sample tiles have lats in descending order- we'll reorder them to make the
-    # index-location-based region to_zarr writing at the end of the post-processing
-    # more straightforward
-    sample_hansen_tile = sample_hansen_tile.reindex(lat=sample_hansen_tile.lat[::-1])
-    ds_list = []
-    for year in np.arange(year0, year1):
-        ds_list.append(sample_hansen_tile)
-    timeseries = xr.concat(ds_list, dim='time')
-    timeseries = timeseries.assign_coords({'time': pd.date_range(str(year0), str(year1), freq='A')})
-    ds = timeseries.to_dataset(name='AGB')
-    for variable in ['BGB', 'dead_wood', 'litter']:
-        ds[variable] = ds['AGB']
     path = 's3://carbonplan-climatetrace/v1/results/tiles/{}_{}.zarr'.format(ul_lat_tag, ul_lon_tag)
-    mapper = fsspec.get_mapper(path)
-    if write_tile_metadata:
-        ds.astype('float32').to_zarr(mapper, mode='w', compute=False)
-    return path
-
+    # if zarr already exists then just pass
+    if fs.exists(path):
+        return path
+    # if not then make an empty dataset
+    else:
+        sample_hansen_tile = (
+            cat.hansen_change(variable='treecover2000', lat=ul_lat_tag, lon=ul_lon_tag)
+            .to_dask()
+            .drop_vars('band')
+            .squeeze()
+        )
+        sample_hansen_tile = sample_hansen_tile.rename({'x': 'lon', 'y': 'lat'})
+        # sample tiles have lats in descending order- we'll reorder them to make the
+        # index-location-based region to_zarr writing at the end of the post-processing
+        # more straightforward
+        sample_hansen_tile = sample_hansen_tile.reindex(lat=sample_hansen_tile.lat[::-1])
+        ds_list = []
+        for year in np.arange(year0, year1):
+            ds_list.append(sample_hansen_tile)
+        timeseries = xr.concat(ds_list, dim='time')
+        timeseries = timeseries.assign_coords({'time': pd.date_range(str(year0), str(year1), freq='A')})
+        ds = timeseries.to_dataset(name='AGB')
+        for variable in ['BGB', 'dead_wood', 'litter']:
+            ds[variable] = ds['AGB']
+        
+        mapper = fsspec.get_mapper(path)
+        if write_tile_metadata:
+            ds.astype('float32').to_zarr(mapper, mode='w', compute=False)
+        return path
 
 def fill_nulls(ds):
     """
@@ -140,10 +144,23 @@ def fill_nulls(ds):
     min_biomass = ds.biomass.min().values
     max_biomass = ds.biomass.max().values
     with dask.config.set(scheduler="threads"):
-        ds = ds.interpolate_na(dim='time', method='linear')  # , bounds_error=False)
-    ds = ds.interpolate_na(dim='x', method='linear', fill_value="extrapolate")
-
-    ds = ds.interpolate_na(dim='y', method='linear', fill_value="extrapolate")
+        ds = ds.interpolate_na(dim='time', method='linear', max_gap=6)  # , bounds_error=False)
+    # now we'll add a try except to handle the corner case of a single pixel in a row
+    # or column that can't be interpolated. by using a try/except we won't interpolate
+    # and instead we will add a 1 pixel buffer around every boundary and then
+    # try extrapolating again. note that this will dampen any extrapolation
+    # slightly for 2x2 cells in which this try/except was triggered
+    try:
+        ds = ds.interpolate_na(dim='x', method='linear', fill_value="extrapolate")
+    except ValueError:
+        ds = ds.bfill(dim='x', limit=1).ffill(dim='x', limit=1)
+        ds = ds.interpolate_na(dim='x', method='linear', fill_value="extrapolate")
+    try:
+        ds = ds.interpolate_na(dim='y', method='linear', fill_value="extrapolate")
+    except ValueError:
+        ds = ds.bfill(dim='y', limit=1).ffill(dim='y', limit=1)
+        ds = ds.interpolate_na(dim='y', method='linear', fill_value="extrapolate")
+    
 
     ds['biomass'] = ds.biomass.clip(min=min_biomass, max=max_biomass)
 
@@ -320,7 +337,7 @@ def postprocess_subtile(parameters_dict):
         # add all other postprocessing
         ds = fillna_mask_and_calc_carbon_pools(ds, chunks_dict=chunks_dict)
         # add the timestamps back in to conform with template
-        ds = ds.assign_coords({'time': pd.date_range(str(year0), str(year1), freq='A')})
+        ds = ds.assign_coords({'time': pd.date_range(str(year0), str(year1), freq='A')}).compute()
         # rechunk aligning with the template file
         ds = ds.chunk({'lat': 4000, 'lon': 4000, 'time': 1})
         for v in ds.data_vars:
