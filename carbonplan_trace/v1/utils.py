@@ -204,7 +204,7 @@ def open_and_combine_lat_lon_data(folder, tiles=None, lat_lon_box=None, consolid
             ds_list = align_coords_by_dim_groups(ds_list, dim)
 
         ds = xr.combine_by_coords(ds_list, combine_attrs="drop_conflicts")
-        return ds.chunk({'lat': 2000, 'lon': 2000})
+        return ds  # .chunk({'lat': 2000, 'lon': 2000})
 
     return None
 
