@@ -394,8 +394,6 @@ postprocess_task = task(postprocess_subtile, tags=["dask-resource:workertoken=1"
 
 def test_to_zarr(parameters_dict):
 
-    min_lat = parameters_dict['MIN_LAT']
-    min_lon = parameters_dict['MIN_LON']
     lat_increment = parameters_dict['LAT_INCREMENT']
     lon_increment = parameters_dict['LON_INCREMENT']
     year0 = parameters_dict['YEAR_0']
@@ -404,10 +402,7 @@ def test_to_zarr(parameters_dict):
     data_path = parameters_dict['DATA_PATH']
     access_key_id = parameters_dict['ACCESS_KEY_ID']
     secret_access_key = parameters_dict['SECRET_ACCESS_KEY']
-    chunks_dict = parameters_dict['CHUNKS_DICT']
 
-    subtile_ul_lat = min_lat + lat_increment + tile_degree_size
-    subtile_ul_lon = min_lon + lon_increment
     core_session = boto3.Session(
         aws_access_key_id=access_key_id,
         aws_secret_access_key=secret_access_key,
@@ -417,7 +412,6 @@ def test_to_zarr(parameters_dict):
     _set_thread_settings()
 
     aws_session = AWSSession(core_session, requester_pays=True)
-    log_path = f's3://carbonplan-climatetrace/v1/postprocess_log/{min_lat}_{min_lon}_{lat_increment}_{lon_increment}.txt'
     # we initialize the fs here to ensure that the worker has the correct permissions
     # in order to write
     fs = fsspec.get_filesystem_class('s3')(key=access_key_id, secret=secret_access_key)
