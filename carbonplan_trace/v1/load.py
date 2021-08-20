@@ -201,7 +201,7 @@ def training(realm, y0=2003, y1=2010, reload=False, access_key_id=None, secret_a
         return output
 
 
-def tropics(ds, chunks_dict):
+def tropics(ds, chunks_dict=None):
     """
     tropics is either 1 or 0 (not boolean)
     """
@@ -210,5 +210,9 @@ def tropics(ds, chunks_dict):
     output_da = regionmask.mask_geopandas(
         tropics, numbers='is_tropica', lon_or_obj=ds, lon_name='x', lat_name='y'
     )
-    ds['is_tropics'] = output_da.chunk(chunks_dict)
+    if chunks_dict is not None:
+        ds['is_tropics'] = output_da.chunk(chunks_dict)
+    else:
+        ds['is_tropics'] = output_da
+
     return ds
