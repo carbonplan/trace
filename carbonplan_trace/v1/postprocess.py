@@ -1,3 +1,5 @@
+import os
+
 import boto3
 import dask
 import fsspec
@@ -7,16 +9,23 @@ import rasterio as rio
 import xarray as xr
 from prefect import task
 from rasterio.session import AWSSession
-import os
+from s3fs import S3FileSystem
+
 from carbonplan_trace.v0.data import cat
 
+fs = S3FileSystem(requester_pays=True)
+
+
 from ..v1 import load, utils
+
 
 def _set_thread_settings():
     """helper function to disable numba and openmp multi-threading"""
     os.environ['OMP_NUM_THREADS'] = '1'
 
+
 dask.config.set({"array.slicing.split_large_chunks": False})
+
 
 def compile_df_for_tile(ul_lat, ul_lon, year, tile_degree_size=2):
     scene_ids = utils.grab_all_scenes_in_tile(ul_lat, ul_lon, tile_degree_size=tile_degree_size)
@@ -27,18 +36,24 @@ def compile_df_for_tile(ul_lat, ul_lon, year, tile_degree_size=2):
 
     dfs = []
     for path in list_of_parquet_paths:
-        temp = pd.read_parquet(f's3://{path}').round(6)
-        temp = temp.loc[
-            (temp.y >= ul_lat - tile_degree_size)
-            & (temp.y <= ul_lat)
-            & (temp.x >= ul_lon)
-            & (temp.x <= ul_lon + tile_degree_size)
-        ]
-        temp['biomass'] = temp.biomass.astype('float32')
-        dfs.append(temp)
-        del temp
-
-    compiled_df = pd.concat(dfs)
+        try:
+            temp = pd.read_parquet(f's3://{path}').round(6)
+            temp = temp.loc[
+                (temp.y >= ul_lat - tile_degree_size)
+                & (temp.y <= ul_lat)
+                & (temp.x >= ul_lon)
+                & (temp.x <= ul_lon + tile_degree_size)
+            ]
+            temp['biomass'] = temp.biomass.astype('float32')
+            temp = temp.dropna()
+            dfs.append(temp)
+            del temp
+        except FileNotFoundError:
+            continue
+    if len(dfs) == 0:
+        compiled_df = pd.DataFrame({}, columns=['x', 'y', 'biomass'])
+    else:
+        compiled_df = pd.concat(dfs)
     del dfs
     compiled_df['biomass'] = compiled_df['biomass'].astype('float32')  # convert to float32
 
@@ -49,18 +64,21 @@ def turn_point_cloud_to_grid(df, ul_lat, ul_lon, tile_degree_size):
     df.x = df.x.round(6)
     df.y = df.y.round(6)
     pixel_size = 0.00025
+    # add tiny offset to ensure you get the last entry in the lat/lon list
+    # and then assert you get the 8000 entries you need
+    offset = 0.000000001
     lats = np.arange(
-        ul_lat - tile_degree_size + pixel_size / 2, ul_lat - pixel_size / 2, pixel_size
+        ul_lat - tile_degree_size + pixel_size / 2, ul_lat - pixel_size / 2 + offset, pixel_size
     ).round(6)
     lons = np.arange(
-        ul_lon + pixel_size / 2, ul_lon + tile_degree_size - pixel_size / 2, pixel_size
+        ul_lon + pixel_size / 2, ul_lon + tile_degree_size - pixel_size / 2 + offset, pixel_size
     ).round(6)
+    assert len(lats) == 8000
+    assert len(lons) == 8000
     df = df.groupby(['x', 'y']).mean().reset_index()
-
     pivot = df.pivot(columns="x", index="y", values="biomass")
     del df
     reindexed = pivot.reindex(index=lats, columns=lons)
-
     ds_grid = xr.DataArray(
         data=reindexed.values,
         dims=["y", "x"],
@@ -103,7 +121,8 @@ def biomass_tile_timeseries(ul_lat, ul_lon, year0, year1, tile_degree_size=2):
 
 def initialize_empty_dataset(ul_lat_tag, ul_lon_tag, year0, year1, write_tile_metadata=True):
     path = 's3://carbonplan-climatetrace/v1/results/tiles/{}_{}.zarr'.format(ul_lat_tag, ul_lon_tag)
-    # if zarr already exists then just pass
+    # if zarr already exists then just return the path and don't touch it since
+    # it will delete the existing store if you try to initialize again
     if fs.exists(path):
         return path
     # if not then make an empty dataset
@@ -123,15 +142,18 @@ def initialize_empty_dataset(ul_lat_tag, ul_lon_tag, year0, year1, write_tile_me
         for year in np.arange(year0, year1):
             ds_list.append(sample_hansen_tile)
         timeseries = xr.concat(ds_list, dim='time')
-        timeseries = timeseries.assign_coords({'time': pd.date_range(str(year0), str(year1), freq='A')})
+        timeseries = timeseries.assign_coords(
+            {'time': pd.date_range(str(year0), str(year1), freq='A')}
+        )
         ds = timeseries.to_dataset(name='AGB')
         for variable in ['BGB', 'dead_wood', 'litter']:
             ds[variable] = ds['AGB']
-        
+
         mapper = fsspec.get_mapper(path)
         if write_tile_metadata:
             ds.astype('float32').to_zarr(mapper, mode='w', compute=False)
         return path
+
 
 def fill_nulls(ds):
     """
@@ -160,7 +182,6 @@ def fill_nulls(ds):
     except ValueError:
         ds = ds.bfill(dim='y', limit=1).ffill(dim='y', limit=1)
         ds = ds.interpolate_na(dim='y', method='linear', fill_value="extrapolate")
-    
 
     ds['biomass'] = ds.biomass.clip(min=min_biomass, max=max_biomass)
 
@@ -204,7 +225,7 @@ def calculate_dead_wood_and_litter(ds, tiles, chunks_dict, lat_lon_box=None):
     3. calculate dead wood and litter
     """
     ds = load.tropics(ds, chunks_dict=chunks_dict)
-    ds = load.aster(ds, tiles, chunks_dict=chunks_dict, lat_lon_box=lat_lon_box)
+    ds = load.aster(ds, tiles, lat_lon_box=lat_lon_box)  # chunks_dict=chunks_dict,
     ds = load.worldclim(ds, chunks_dict=chunks_dict)
     # ds = ds.chunk(chunks_dict)
     dead_wood = (
@@ -331,35 +352,45 @@ def postprocess_subtile(parameters_dict):
     ds = biomass_tile_timeseries(
         subtile_ul_lat, subtile_ul_lon, year0, year1, tile_degree_size=tile_degree_size
     )
+    if ds.biomass.notnull().sum().values == 0:
+        write_to_log('empty scene', log_path, access_key_id, secret_access_key)
+    else:
+        with rio.Env(aws_session):
+            with dask.config.set(scheduler='single-threaded'):
 
-    with rio.Env(aws_session):
+                # add all other postprocessing
+                ds = fillna_mask_and_calc_carbon_pools(ds, chunks_dict=chunks_dict)
+                # add the timestamps back in to conform with template
+                ds = ds.assign_coords(
+                    {'time': pd.date_range(str(year0), str(year1), freq='A')}
+                ).compute()
+                # rechunk aligning with the template file
+                ds = ds.chunk({'lat': 4000, 'lon': 4000, 'time': 1})
+                for v in ds.data_vars:
+                    if 'chunks' in ds[v].encoding:
+                        del ds[v].encoding['chunks']
+                task = ds.to_zarr(
+                    data_mapper,
+                    mode='a',
+                    region={
+                        "lat": slice(
+                            lat_increment * 4000, (lat_increment + tile_degree_size) * 4000
+                        ),
+                        'lon': slice(
+                            lon_increment * 4000, (lon_increment + tile_degree_size) * 4000
+                        ),
+                        'time': slice(0, year1 - year0),
+                    },
+                    compute=False,
+                )
+                task.compute(retries=10)
 
-        # add all other postprocessing
-        ds = fillna_mask_and_calc_carbon_pools(ds, chunks_dict=chunks_dict)
-        # add the timestamps back in to conform with template
-        ds = ds.assign_coords({'time': pd.date_range(str(year0), str(year1), freq='A')}).compute()
-        # rechunk aligning with the template file
-        ds = ds.chunk({'lat': 4000, 'lon': 4000, 'time': 1})
-        for v in ds.data_vars:
-            if 'chunks' in ds[v].encoding:
-                del ds[v].encoding['chunks']
-        with dask.config.set(scheduler='single-threaded'):
-            task = ds.to_zarr(
-                data_mapper,
-                mode='a',
-                region={
-                    "lat": slice(lat_increment * 4000, (lat_increment + tile_degree_size) * 4000),
-                    'lon': slice(lon_increment * 4000, (lon_increment + tile_degree_size) * 4000),
-                    'time': slice(0, year1 - year0),
-                },
-            compute=False)
-            task.compute(retries=10)
-
-    write_to_log('done', log_path, access_key_id, secret_access_key)
+        write_to_log('done', log_path, access_key_id, secret_access_key)
 
 
 postprocess_delayed = dask.delayed(postprocess_subtile)
 postprocess_task = task(postprocess_subtile, tags=["dask-resource:workertoken=1"])
+
 
 def test_to_zarr(parameters_dict):
 
@@ -394,10 +425,15 @@ def test_to_zarr(parameters_dict):
 
     with rio.Env(aws_session):
 
-        da = xr.DataArray(np.ones((8000,8000,2)), coords = {'lat': np.arange(40,40.80, .0001), 
-                                                            'lon': np.arange(-120,-119.200, .0001),
-                            'time': [2014, 2015]},
-                    dims=('lat', 'lon', 'time'))
+        da = xr.DataArray(
+            np.ones((8000, 8000, 2)),
+            coords={
+                'lat': np.arange(40, 40.80, 0.0001),
+                'lon': np.arange(-120, -119.200, 0.0001),
+                'time': [2014, 2015],
+            },
+            dims=('lat', 'lon', 'time'),
+        )
         ds = da.to_dataset(name='AGB')
         ds = ds.transpose('time', 'lat', 'lon')
         for variable in ['BGB', 'dead_wood', 'litter']:
@@ -415,7 +451,10 @@ def test_to_zarr(parameters_dict):
                     "lat": slice(lat_increment * 4000, (lat_increment + tile_degree_size) * 4000),
                     'lon': slice(lon_increment * 4000, (lon_increment + tile_degree_size) * 4000),
                     'time': slice(0, year1 - year0),
-                },compute=False)
+                },
+                compute=False,
+            )
             task.compute(retries=10)
+
 
 task_test_to_zarr = task(test_to_zarr, tags=["dask-resource:workertoken=1"])
