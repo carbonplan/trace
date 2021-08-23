@@ -53,9 +53,8 @@ def open_fire_mask(tile_id, resolution=30, y0=2014, y1=2020):
 
 
 def calc_biomass_change(ds):
-    # diff by one year
-    ds['flux'] = (ds.shift(time=1) - ds).sel(time=slice(2015, 2020))
-    return ds
+    # diff by one year, dropping the first year since it will be all nulls
+    return (ds.shift(time=1) - ds).isel(time=slice(1, None))
 
 
 def convert_to_emissions(ds):
@@ -136,11 +135,12 @@ def process_one_tile(tile_id):
     # calc emissions
     if not (skip_existing and zarr_is_complete(tot_mapper) and zarr_is_complete(split_mapper)):
 
-        lat, lon = tile_id.split('_')
+        # read data 
         fire_da = open_fire_mask(tile_id).fillna(0)
-
-        flux = calc_biomass_change().to_dataset(name='flux')
-
+        carbon_pools = xr.open_zarr(f's3://carbonplan-climatetrace/v1/results/tiles/{tile_id}.zarr')
+        
+        # calculate fluxes         
+        flux = calc_biomass_change(ds=carbon_pools)
         sources = flux.clip(min=0)
         sinks = flux.clip(max=0)
         # write total emissions
@@ -153,8 +153,11 @@ def process_one_tile(tile_id):
         # note that we are limited by the start of the dataset and will miss the fires from years[0] - 1
         fire_attribution = (fire_da + fire_da.shift(year=1, fill_value=0)).astype(bool)
         sources, fire_attribution = xr.align(sources, fire_attribution, join='inner')
-        out['emissions_from_fire'] = sources['flux'].where(fire_attribution, other=0)
-        out['emissions_from_clearing'] = sources['flux'] - out['emissions_from_fire']
+
+        # this needs to be changed because sources is a dataset with four data arrays (AGB, BGB, deadwood, litter)
+        # we can't assign it to be a dataarray in the out dataset 
+        out['emissions_from_fire'] = sources.where(fire_attribution, other=0)
+        out['emissions_from_clearing'] = sources - out['emissions_from_fire']
         out['sinks'] = sinks
         out = convert_to_emissions(out)
 
