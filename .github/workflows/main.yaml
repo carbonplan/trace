@@ -46,7 +46,7 @@ jobs:
           echo "REPO_HASH=$(git rev-parse --short ${GITHUB_SHA})" >> $GITHUB_ENV
       - name: Docker meta
         id: docker_meta
-        uses: docker/metadata-action@v3.4.1
+        uses: docker/metadata-action@v3.5.0
         with:
           images: |
             carbonplan/trace-python-notebook
