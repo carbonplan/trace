@@ -57,29 +57,59 @@ def check_mins_maxes(ds):
 
 def create_target_grid(min_lat, max_lat, min_lon, max_lon):
     tiles = utils.find_tiles_for_bounding_box(min_lat, max_lat, min_lon, max_lon)
-    full_target_ds = utils.open_and_combine_lat_lon_data(
-        's3://carbonplan-climatetrace/intermediate/ecoregions_mask/',
-        tiles=tiles,
-        lat_lon_box=[min_lat, max_lat, min_lon, max_lon],
-    )
-    full_target_ds = full_target_ds.rename({'lat': 'y', 'lon': 'x'})
-    buffer = 0.01
-    target = full_target_ds.sel(
-        y=slice(min_lat - buffer, max_lat + buffer), x=slice(min_lon - buffer, max_lon + buffer)
-    )
-    target.attrs["crs"] = "EPSG:4326"
-    return target, tiles
+    if len(tiles) > 0:
+        full_target_ds = utils.open_and_combine_lat_lon_data(
+            's3://carbonplan-climatetrace/intermediate/ecoregions_mask/',
+            tiles=tiles,
+            lat_lon_box=[min_lat, max_lat, min_lon, max_lon],
+            consolidated=False,
+        )
+        full_target_ds = full_target_ds.rename({'lat': 'y', 'lon': 'x'})
+        buffer = 0.01
+        target = full_target_ds.sel(
+            y=slice(min_lat - buffer, max_lat + buffer), x=slice(min_lon - buffer, max_lon + buffer)
+        )
+        target.attrs["crs"] = "EPSG:4326"
+        del full_target_ds
+        return target, tiles
+    else:
+        return None, []
 
 
 def reproject_dataset_to_fourthousandth_grid(ds, zone=None):
     ds = write_crs_dataset(ds, zone=zone)
     min_lat, max_lat, min_lon, max_lon = check_mins_maxes(ds)
-    target, tiles = create_target_grid(min_lat, max_lat, min_lon, max_lon)
-    # the numbers aren't too big but if we normalize they might turn into decimals
-    reprojected = ds.rio.reproject_match(target).load()
-    reprojected = reprojected.where(reprojected < 1e100)
-    del ds
-    return reprojected, tiles, [min_lat, max_lat, min_lon, max_lon]
+    if max_lon >= 170 and min_lon <= -170:
+        data_list, tiles_list, bounding_box_list = [], [], []
+
+        target_east, tiles_east = create_target_grid(min_lat, max_lat, max_lon, 180)
+        if len(tiles_east) > 0:
+            reprojected_east = ds.rio.reproject_match(target_east).compute()
+            reprojected_east = reprojected_east.where(reprojected_east < 1e100)
+            data_list.append(reprojected_east)
+            tiles_list.append(tiles_east)
+            bounding_box_list.append([min_lat, max_lat, max_lon, 180])
+        del target_east
+
+        target_west, tiles_west = create_target_grid(min_lat, max_lat, -180, min_lon)
+        if len(tiles_west) > 0:
+            reprojected_west = ds.rio.reproject_match(target_west).compute()
+            reprojected_west = reprojected_west.where(reprojected_west < 1e100)
+            data_list.append(reprojected_west)
+            tiles_list.append(tiles_west)
+            bounding_box_list.append([min_lat, max_lat, -180, min_lon])
+        del target_west
+
+        return data_list, tiles_list, bounding_box_list
+
+    else:
+        target, tiles = create_target_grid(min_lat, max_lat, min_lon, max_lon)
+        # the numbers aren't too big but if we normalize they might turn into decimals
+        reprojected = ds.rio.reproject_match(target).compute()
+        del ds
+        del target
+        reprojected = reprojected.where(reprojected < 1e100)
+        return [reprojected], [tiles], [[min_lat, max_lat, min_lon, max_lon]]
 
 
 def dataset_to_tabular(ds):
@@ -183,6 +213,7 @@ def predict(
         # create the landsat scene for that year
         with dask.config.set(scheduler='single-threaded'):
             t0 = time.time()
+            print('averaging')
             landsat_ds = scene_seasonal_average(
                 path,
                 row,
@@ -198,23 +229,29 @@ def predict(
             )
             t1 = time.time()
             print(f'averaging landsat took {round(t1-t0)} seconds')
-            # print('landsat ds', landsat_ds)
             if landsat_ds:
                 # reproject from utm to lat/lon
                 landsat_zone = landsat_ds.utm_zone_number + landsat_ds.utm_zone_letter
                 # sets null value to np.nan
                 write_nodata(landsat_ds)
-                data, tiles, bounding_box = reproject_dataset_to_fourthousandth_grid(
-                    landsat_ds, zone=landsat_zone
+                print('reprojecting')
+
+                data_list, tiles_list, bounding_box_list = reproject_dataset_to_fourthousandth_grid(
+                    landsat_ds.astype('float32'), zone=landsat_zone
                 )
                 del landsat_ds
 
-                # add in other datasets
-                data = add_all_variables(data, tiles, year, lat_lon_box=bounding_box).load()
-                df = dataset_to_tabular(data.drop(['spatial_ref']))
+                dfs = []
+                for data, tiles, bounding_box in zip(data_list, tiles_list, bounding_box_list):
+                    # add in other datasets
+                    data = add_all_variables(data, tiles, year, lat_lon_box=bounding_box).load()
+                    df = dataset_to_tabular(data.drop(['spatial_ref']))
+                    dfs.append(df)
+                    del df
+                    del data
+                df = pd.concat(dfs)
                 df = df.loc[df.ecoregion > 0]
                 df['realm'] = df.ecoregion.apply(ECO_TO_REALM_MAP.__getitem__)
-                del data
             else:
                 df = pd.DataFrame({})
 
