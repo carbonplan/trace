@@ -349,7 +349,7 @@ def postprocess_subtile(parameters_dict):
     _set_thread_settings()
 
     aws_session = AWSSession(core_session, requester_pays=True)
-    log_path = f's3://carbonplan-climatetrace/v1/postprocess_log/{min_lat}_{min_lon}_{lat_increment}_{lon_increment}.txt'
+    log_path = f's3://carbonplan-climatetrace/v1.1/postprocess_log/{min_lat}_{min_lon}_{lat_increment}_{lon_increment}.txt'
     # we initialize the fs here to ensure that the worker has the correct permissions
     # in order to write
     fs = fsspec.get_filesystem_class('s3')(key=access_key_id, secret=secret_access_key)
