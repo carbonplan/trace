@@ -348,7 +348,7 @@ class random_forest_model(baseline_model):
         self.seed = seed
 
         if fs.exists(self.model_filename) and not overwrite:
-            print(f'    {self.name} model already exists, loading')
+            print(f'    {self.name} model already exists, loading from {self.model_filename}')
             self._load()
         else:
             print(f'    Building {self.name} model')

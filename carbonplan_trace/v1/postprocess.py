@@ -12,6 +12,7 @@ from rasterio.session import AWSSession
 from s3fs import S3FileSystem
 
 from carbonplan_trace.v0.data import cat
+from carbonplan_trace.v1.change_point_detection import perform_change_detection
 
 fs = S3FileSystem(requester_pays=True)
 
@@ -120,7 +121,7 @@ def biomass_tile_timeseries(ul_lat, ul_lon, year0, year1, tile_degree_size=2):
 
 
 def initialize_empty_dataset(ul_lat_tag, ul_lon_tag, year0, year1, write_tile_metadata=True):
-    path = 's3://carbonplan-climatetrace/v1/results/tiles/{}_{}.zarr'.format(ul_lat_tag, ul_lon_tag)
+    path = 's3://carbonplan-climatetrace/v1.1/results/tiles/{}_{}.zarr'.format(ul_lat_tag, ul_lon_tag)
     # if zarr already exists then just return the path and don't touch it since
     # it will delete the existing store if you try to initialize again
     if fs.exists(path):
@@ -145,8 +146,11 @@ def initialize_empty_dataset(ul_lat_tag, ul_lon_tag, year0, year1, write_tile_me
         timeseries = timeseries.assign_coords(
             {'time': pd.date_range(str(year0), str(year1), freq='A')}
         )
+        # ds = timeseries.to_dataset(name='AGB')
+        # for variable in ['BGB', 'dead_wood', 'litter']:
+        #     ds[variable] = ds['AGB']
         ds = timeseries.to_dataset(name='AGB')
-        for variable in ['BGB', 'dead_wood', 'litter']:
+        for variable in ['AGB_raw', 'pvalue', 'breakpoint']:
             ds[variable] = ds['AGB']
 
         mapper = fsspec.get_mapper(path)
@@ -294,23 +298,23 @@ def fillna_mask_and_calc_carbon_pools(data, chunks_dict):
     input = 3D merged result with lat, lon, year and biomass being the only data variable
     output = input data with more data variables for other carbon pools, with nulls filled and masked with forest land cover
     """
-    min_lat = data.y.min().values
-    max_lat = data.y.max().values
-    min_lon = data.x.min().values
-    max_lon = data.x.max().values
-    lat_lon_box = min_lat, max_lat, min_lon, max_lon
-    # get lat lon tags
-    tiles = utils.find_tiles_for_bounding_box(min_lat, max_lat, min_lon, max_lon)
+    # min_lat = data.y.min().values
+    # max_lat = data.y.max().values
+    # min_lon = data.x.min().values
+    # max_lon = data.x.max().values
+    # lat_lon_box = min_lat, max_lat, min_lon, max_lon
+    # # get lat lon tags
+    # tiles = utils.find_tiles_for_bounding_box(min_lat, max_lat, min_lon, max_lon)
 
     data = fill_nulls(data.load()).chunk(chunks_dict)
-    data = apply_forest_mask(data, lat_lon_box=lat_lon_box, chunks_dict=chunks_dict)
-    data = calculate_belowground_biomass(data)
-    data = calculate_dead_wood_and_litter(
-        data, tiles, chunks_dict=chunks_dict, lat_lon_box=lat_lon_box
-    )
+    # data = apply_forest_mask(data, lat_lon_box=lat_lon_box, chunks_dict=chunks_dict)
+    # data = calculate_belowground_biomass(data)
+    # data = calculate_dead_wood_and_litter(
+    #     data, tiles, chunks_dict=chunks_dict, lat_lon_box=lat_lon_box
+    # )
     data = data.rename({'x': 'lon', 'y': 'lat'})
     data = data.transpose('time', 'lat', 'lon')
-    return data
+    return data.astype('float32')
 
 
 def write_to_log(string, log_path, access_key_id, secret_access_key):
@@ -360,6 +364,12 @@ def postprocess_subtile(parameters_dict):
 
                 # add all other postprocessing
                 ds = fillna_mask_and_calc_carbon_pools(ds, chunks_dict=chunks_dict)
+                # do the interpolation 
+                smoothed, pvalue, breakpoint = perform_change_detection(ds.biomass)
+                ds = ds.rename({'biomass': 'AGB_raw'})
+                ds['AGB'] = smoothed
+                ds['pvalue'] = pvalue
+                ds['breakpoint'] = breakpoint 
                 # add the timestamps back in to conform with template
                 ds = ds.assign_coords(
                     {'time': pd.date_range(str(year0), str(year1), freq='A')}

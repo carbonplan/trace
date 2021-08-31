@@ -7,10 +7,6 @@ def calc_rss(ytrue, ypred):
     return ((ypred - ytrue) ** 2).sum(dim='time')
 
 
-def calc_rss_flat(ytrue, ypred):
-    return np.sum((ypred - ytrue) ** 2, axis=0)
-
-
 def calc_fstat_pvalue(rss1, rss2, p1, p2, n, calc_p=False):
     """
     rss1 and p1 are from the restricted model 
@@ -26,143 +22,20 @@ def calc_fstat_pvalue(rss1, rss2, p1, p2, n, calc_p=False):
     return f, p
 
 
-def fit_regression_model(X, y, calc_p=False):
-    if len(y) > 2:
-        result = np.linalg.lstsq(X, y, rcond=None)
-        coef = result[0]
-        rss = result[1][0]
-        rss_null = calc_rss_flat(y, np.mean(y))
-        _, pvalue = calc_fstat_pvalue(rss1=rss_null, rss2=rss, p1=1, p2=2, n=len(y), calc_p=calc_p)
-    elif len(y) == 2:
-        result = np.linalg.lstsq(X, y, rcond=None)
-        coef = result[0]
-        # if there are only two points in the time series, rss is always 0
-        rss, pvalue = 0, 0
-    elif len(y) == 1:
-        coef = (0, y[0])
-        rss, pvalue = 0, 0
-
-    return coef, rss, pvalue
-
-    
-def perform_sup_f_test(ts):
-    """
-    This function is implemented based on Andrews (1993) on detecting unknown breakpoints 
-    "Tests for Parameter Instability and Structural Change With Unknown Change Point"
-    Also see notes from https://nanopdf.com/download/lecture-12-testing-for-structural-breaks_pdf 
-    
-    This function assumes that input ts is a time series, and performs a chow test for every possible 
-    change point, then, it compares the maximum f/chow stat to a critical value. If max(F) > critical value, 
-    the null hypothesis of no change point is rejected. Critical values are tabulated in Andrews (1993) for 
-    different significance level (alpha), degrees of freedom (p), and min proportion of samples allowed to 
-    be in each group (pi_0). 
-    """
-    # this assumes that we're performing chow test for a time series with no additional independent variables 
-    # thus degree of freedom (k) = 2 (intercept, slope)
-    k = 2 
-    # this critical value was taken from Andrews (1993) for p (DoF) = 2, alpha = 5%, and pi_0 = 0.1
-    # for a 7 point time series, our pi_0 is 1 / 7 = 0.14 (minimum 1 time point in each before/after group)
-    # between pi_0 of 0.1 and 0.15 available on the table, we took the more conservative value of 0.1 
-    n = len(ts)
-    assert n == 7
-    critical_value = 12.27
-#     critical_value = 10.03
-    
-    t = np.vstack(
-        [
-            np.arange(n),
-            np.ones(n)
-        ]
-    ).T
-
-    
-    # fit 1 linear regression for entire time series 
-    coef_total, rss_total, p_total = fit_regression_model(X=t, y=ts, calc_p=True)
-#     print('rss_total', rss_total)
-
-    # for each potential break point, fit separate linear regression models for both parts
-    max_f = 0
-    max_f_ind = None
-    output_coef_1 = None 
-    output_coef_2 = None
-    for i in range(1, len(ts)):
-        coef_1, rss_1, _ = fit_regression_model(X=t[:i], y=ts[:i], calc_p=False)
-        coef_2, rss_2, _ = fit_regression_model(X=t[i:], y=ts[i:], calc_p=False)
-#         print(f'breakpoint {i}, sum of rss = {rss_1 + rss_2}')
-#         print(f'rss 1: {rss_1}')
-#         print(f'rss 2: {rss_2}')
-        # calculate f stat 
-        f, _ = calc_fstat_pvalue(
-            rss1=rss_total, 
-            rss2=(rss_1 + rss_2),
-            p1=k, 
-            p2=2*k, 
-            n=n, 
-            calc_p=False
-        )
-        
-        # save the largest f value so far and update other params 
-        if f > max_f:
-            max_f = f
-            max_f_ind = i
-            output_coef_1 = coef_1
-            output_coef_2 = coef_2
-    
-#     print('max_f_ind', max_f_ind)
-#     print('max_f', max_f)
-    result = {
-        'breakpoint': max_f_ind if max_f > critical_value else None,
-        'coef_total': coef_total,
-        'coef_1': output_coef_1,
-        'coef_2': output_coef_2
-    } 
-    
-    pred = make_prediction(result, np.arange(n))
-    result.update({'pred': pred})
-    
-    # if we think there is a break point, get p value for the 2 piece 
-    # otherwise save the p value for 1 linear regression 
-    if result['breakpoint'] is not None:
-        rss = calc_rss_flat(ts, pred)
-        rss_null = calc_rss_flat(ts, np.mean(ts))
-        _, pvalue = calc_fstat_pvalue(rss1=rss_null, rss2=rss, p1=1, p2=4, n=n, calc_p=True)
-        result.update({'pvalue': pvalue})
-    else:
-        result.update({'pvalue': p_total})
-    
-    if result['pvalue'] < 0.05:
-        return pred
-    else:
-        return [np.mean(ts)] * n
-#     return result
-
-
-def make_prediction(result, t):
-    breakpoint = result['breakpoint']
-    if breakpoint is not None:
-        m1, b1 = result['coef_1']
-        m2, b2 = result['coef_2']
-        y1 = m1 * t[:breakpoint] + b1
-        y2 = m2 * t[breakpoint:] + b2
-        return np.append(y1, y2)
-    else:
-        m, b = result['coef_total']
-        return m * t + b
-
-
 def make_predictions_3D(x, breakpoint, has_breakpoint, slope_total, slope1, slope2, int_total, int1, int2):
-    pred = (int_total + slope_total * x).transpose(*x.dims)
+    pred = (int_total + slope_total * x).transpose(*x.dims).astype('float32')
     
     for i in range(1, len(x.time)):
         mask1 = has_breakpoint & (breakpoint == i) & (x < i)
-        pred1 = (int1 + slope1 * x).transpose(*x.dims)
+        pred1 = (int1 + slope1 * x).transpose(*x.dims).astype('float32')
         pred = xr.where(mask1, x=pred1, y=pred)
 
         mask2 = has_breakpoint & (breakpoint == i) & (x >= i)
-        pred2 = (int2 + slope2 * x).transpose(*x.dims)
+        pred2 = (int2 + slope2 * x).transpose(*x.dims).astype('float32')
         pred = xr.where(mask2, x=pred2, y=pred)
 
-    return pred 
+    return pred.astype('float32')
+
 
 def linear_regression_3D(x, y, calc_p=True):
     """
@@ -212,10 +85,10 @@ def linear_regression_3D(x, y, calc_p=True):
         pvalue = zero_array
 
     return slope.astype('float32'), intercept.astype('float32'), rss.astype('float32'), pvalue
-    
+
+
 def perform_change_detection(da):
     # 1. initialize parameter values 
-    print(f'1. {datetime.now()}')
     # this assumes that we're performing chow test for a time series with no additional independent variables 
     # thus degree of freedom (k) = 2 (intercept, slope)
     k = 2 
@@ -228,7 +101,6 @@ def perform_change_detection(da):
 #     critical_value = 10.03  # 90% CI 
 
     # 2. initialize x array as the independent variable (i.e. n timestep)
-    print(f'2. {datetime.now()}')
     # subtracting 1 to be consistent with python index 
     x = xr.DataArray(
         1, 
@@ -237,13 +109,10 @@ def perform_change_detection(da):
     ).cumsum(dim='time').astype('int8') - int(1)
     
     # 3. fit one linear regression for entire time series 
-    print(f'3. {datetime.now()}')
     slope_total, int_total, rss_total, p_total = linear_regression_3D(x=x, y=da, calc_p=True)
     
     # 4. for each break point, fit 2 linear regression model and assess the fit, save the best fit 
-    print(f'4. {datetime.now()}')
     for i in range(1, n):
-        print(f'4.{i} {datetime.now()}')
         slope1, int1, rss1, _ = linear_regression_3D(x=x.isel(time=slice(None, i)), 
                                                           y=da.isel(time=slice(None, i)), 
                                                           calc_p=False)
@@ -283,7 +152,6 @@ def perform_change_detection(da):
             
     # 5. If the best fit from break point regression is better than the critical f value, make predictions based on that model 
     # else make prediction based on the 1 regression model 
-    print(f'5. {datetime.now()}')
     has_breakpoint = (max_f > critical_value).compute()
     pred = make_predictions_3D(
         x=x, 
@@ -297,10 +165,9 @@ def perform_change_detection(da):
         int2=output_int2,
     )
 
-    del slope_total, output_slope1, output_slope2, int_total, output_int1, output_int2, breakpoint, rss_total 
+    del slope_total, output_slope1, output_slope2, int_total, output_int1, output_int2, rss_total, max_f, mask
     
     # 6. If we think there is a break point, get p value for the 2 piece, otherwise save the p value for 1 linear regression 
-    print(f'6. {datetime.now()}')
     rss = calc_rss(da, pred)
     rss_null = calc_rss(da, da.mean(dim='time'))
     _, p_breakpoint = calc_fstat_pvalue(rss1=rss_null, rss2=rss, p1=1, p2=4, n=n, calc_p=True)
@@ -308,14 +175,16 @@ def perform_change_detection(da):
         has_breakpoint,
         x=p_breakpoint,
         y=p_total
-    ).compute()
+    ).compute() 
+    pvalue = pvalue.astype('float32')
+    del rss, rss_null, p_breakpoint, p_total
 
-    # 7. 
-    print(f'7. {datetime.now()}')
+    # 7. Update predictions based on p value 
     pred = xr.where(
         pvalue <= 0.05,
         x=pred,
         y=da.mean(dim='time')
     ).compute()
+    pred = pred.astype('float32')
 
-    return pred, pvalue, has_breakpoint 
+    return pred, pvalue, breakpoint.where(has_breakpoint) 
