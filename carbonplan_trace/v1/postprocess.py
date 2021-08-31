@@ -121,7 +121,9 @@ def biomass_tile_timeseries(ul_lat, ul_lon, year0, year1, tile_degree_size=2):
 
 
 def initialize_empty_dataset(ul_lat_tag, ul_lon_tag, year0, year1, write_tile_metadata=True):
-    path = 's3://carbonplan-climatetrace/v1.1/results/tiles/{}_{}.zarr'.format(ul_lat_tag, ul_lon_tag)
+    path = 's3://carbonplan-climatetrace/v1.1/results/tiles/{}_{}.zarr'.format(
+        ul_lat_tag, ul_lon_tag
+    )
     # if zarr already exists then just return the path and don't touch it since
     # it will delete the existing store if you try to initialize again
     if fs.exists(path):
@@ -364,12 +366,12 @@ def postprocess_subtile(parameters_dict):
 
                 # add all other postprocessing
                 ds = fillna_mask_and_calc_carbon_pools(ds, chunks_dict=chunks_dict)
-                # do the interpolation 
+                # do the interpolation
                 smoothed, pvalue, breakpoint = perform_change_detection(ds.biomass)
                 ds = ds.rename({'biomass': 'AGB_raw'})
                 ds['AGB'] = smoothed
                 ds['pvalue'] = pvalue
-                ds['breakpoint'] = breakpoint 
+                ds['breakpoint'] = breakpoint
                 # add the timestamps back in to conform with template
                 ds = ds.assign_coords(
                     {'time': pd.date_range(str(year0), str(year1), freq='A')}
