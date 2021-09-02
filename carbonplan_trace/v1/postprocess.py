@@ -1,7 +1,9 @@
 import os
+from datetime import datetime
 
 import boto3
 import dask
+import dask.dataframe as dd
 import fsspec
 import numpy as np
 import pandas as pd
@@ -33,32 +35,26 @@ def compile_df_for_tile(ul_lat, ul_lon, year, tile_degree_size=2):
     list_of_parquet_paths = [
         f's3://carbonplan-climatetrace/v1/inference/rf/{year}/{path:03d}{row:03d}.parquet'
         for [path, row] in scene_ids
+        if fs.exists(
+            f's3://carbonplan-climatetrace/v1/inference/rf/{year}/{path:03d}{row:03d}.parquet'
+        )
     ]
 
-    dfs = []
-    for path in list_of_parquet_paths:
-        try:
-            temp = pd.read_parquet(f's3://{path}').round(6)
-            temp = temp.loc[
-                (temp.y >= ul_lat - tile_degree_size)
-                & (temp.y <= ul_lat)
-                & (temp.x >= ul_lon)
-                & (temp.x <= ul_lon + tile_degree_size)
-            ]
-            temp['biomass'] = temp.biomass.astype('float32')
-            temp = temp.dropna()
-            dfs.append(temp)
-            del temp
-        except FileNotFoundError:
-            continue
-    if len(dfs) == 0:
-        compiled_df = pd.DataFrame({}, columns=['x', 'y', 'biomass'])
+    if len(list_of_parquet_paths) == 0:
+        df = dd.DataFrame({}, columns=['x', 'y', 'biomass'])
     else:
-        compiled_df = pd.concat(dfs)
-    del dfs
-    compiled_df['biomass'] = compiled_df['biomass'].astype('float32')  # convert to float32
+        df = dd.read_parquet(list_of_parquet_paths).round(6)
+        df = df.dropna(subset=['biomass'])
+        df = df.loc[
+            (df.y >= ul_lat - tile_degree_size)
+            & (df.y <= ul_lat)
+            & (df.x >= ul_lon)
+            & (df.x <= ul_lon + tile_degree_size)
+        ]
 
-    return compiled_df
+    df['biomass'] = df['biomass'].astype('float32')  # convert to float32
+
+    return df.compute()
 
 
 def turn_point_cloud_to_grid(df, ul_lat, ul_lon, tile_degree_size):
@@ -76,18 +72,29 @@ def turn_point_cloud_to_grid(df, ul_lat, ul_lon, tile_degree_size):
     ).round(6)
     assert len(lats) == 8000
     assert len(lons) == 8000
-    df = df.groupby(['x', 'y']).mean().reset_index()
-    pivot = df.pivot(columns="x", index="y", values="biomass")
+    df = df.groupby(['x', 'y']).mean()
+
+    ds_grid = (
+        xr.DataArray(df, dims=['xy', 'col'], coords=[df.index, [0]])
+        .astype('float32')
+        .squeeze(dim='col', drop=True)
+    )
     del df
-    reindexed = pivot.reindex(index=lats, columns=lons)
-    ds_grid = xr.DataArray(
-        data=reindexed.values,
-        dims=["y", "x"],
-        coords=[lats, lons],
-    ).astype('float32')
-    del reindexed
+    ds_grid = ds_grid.unstack('xy').reindex(x=lons, y=lats)
+    # first grab the i, j for each row
+    # then do vectorized assignment
+
+    # pivot = df.pivot_table(columns="x", index="y", values="biomass", aggfunc='mean')
+    # del df
+    # reindexed = pivot.reindex(index=lats, columns=lons)
+    # ds_grid = xr.DataArray(
+    #     data=reindexed.values,
+    #     dims=["y", "x"],
+    #     coords=[lats, lons],
+    # ).astype('float32')
+    # del reindexed
     ds_grid = ds_grid.to_dataset(name="biomass", promote_attrs=True)
-    return ds_grid
+    return ds_grid.compute()
 
 
 def trim_ds(ul_lat, ul_lon, tile_degree_size, ds):
@@ -98,9 +105,12 @@ def trim_ds(ul_lat, ul_lon, tile_degree_size, ds):
 
 
 def merge_all_scenes_in_tile(ul_lat, ul_lon, year, tile_degree_size=2):
+    print(f'compiling {datetime.now()}')
     df = compile_df_for_tile(ul_lat, ul_lon, year)
+    print(f'gridding {datetime.now()}')
     ds = turn_point_cloud_to_grid(df, ul_lat, ul_lon, tile_degree_size)
     del df
+    print(f'trimming {datetime.now()}')
     ds = trim_ds(ul_lat, ul_lon, tile_degree_size, ds)
     return ds
 
@@ -108,10 +118,13 @@ def merge_all_scenes_in_tile(ul_lat, ul_lon, year, tile_degree_size=2):
 def biomass_tile_timeseries(ul_lat, ul_lon, year0, year1, tile_degree_size=2):
     ds_list = []
     for year in np.arange(year0, year1):
+        print(year)
         ds_list.append(
             merge_all_scenes_in_tile(ul_lat, ul_lon, year, tile_degree_size=tile_degree_size)
         )
     biomass_timeseries = xr.concat(ds_list, dim='time')
+
+    del ds_list
 
     biomass_timeseries = biomass_timeseries.assign_coords(
         # {'time': pd.date_range(str(year0), str(year1), freq='A')}
@@ -152,8 +165,12 @@ def initialize_empty_dataset(ul_lat_tag, ul_lon_tag, year0, year1, write_tile_me
         # for variable in ['BGB', 'dead_wood', 'litter']:
         #     ds[variable] = ds['AGB']
         ds = timeseries.to_dataset(name='AGB')
-        for variable in ['AGB_raw', 'pvalue', 'breakpoint']:
+        # variables with time dimension
+        for variable in ['AGB_raw']:
             ds[variable] = ds['AGB']
+        # variables without time dimension
+        for variable in ['pvalue', 'breakpoint']:
+            ds[variable] = ds['AGB'].isel(time=slice(0, 1)).squeeze('time', drop=True)
 
         mapper = fsspec.get_mapper(path)
         if write_tile_metadata:
@@ -171,6 +188,7 @@ def fill_nulls(ds):
     """
     min_biomass = ds.biomass.min().values
     max_biomass = ds.biomass.max().values
+    print('interpolating on time')
     with dask.config.set(scheduler="threads"):
         ds = ds.interpolate_na(dim='time', method='linear', max_gap=6)  # , bounds_error=False)
     # now we'll add a try except to handle the corner case of a single pixel in a row
@@ -178,17 +196,19 @@ def fill_nulls(ds):
     # and instead we will add a 1 pixel buffer around every boundary and then
     # try extrapolating again. note that this will dampen any extrapolation
     # slightly for 2x2 cells in which this try/except was triggered
+    ds = ds.load()
+    print('interpolating on x')
     try:
         ds = ds.interpolate_na(dim='x', method='linear', fill_value="extrapolate")
     except ValueError:
         ds = ds.bfill(dim='x', limit=1).ffill(dim='x', limit=1)
         ds = ds.interpolate_na(dim='x', method='linear', fill_value="extrapolate")
+    print('interpolating on y')
     try:
         ds = ds.interpolate_na(dim='y', method='linear', fill_value="extrapolate")
     except ValueError:
         ds = ds.bfill(dim='y', limit=1).ffill(dim='y', limit=1)
         ds = ds.interpolate_na(dim='y', method='linear', fill_value="extrapolate")
-
     ds['biomass'] = ds.biomass.clip(min=min_biomass, max=max_biomass)
 
     return ds
@@ -308,7 +328,7 @@ def fillna_mask_and_calc_carbon_pools(data, chunks_dict):
     # # get lat lon tags
     # tiles = utils.find_tiles_for_bounding_box(min_lat, max_lat, min_lon, max_lon)
 
-    data = fill_nulls(data.load()).chunk(chunks_dict)
+    data = fill_nulls(data).chunk(chunks_dict)
     # data = apply_forest_mask(data, lat_lon_box=lat_lon_box, chunks_dict=chunks_dict)
     # data = calculate_belowground_biomass(data)
     # data = calculate_dead_wood_and_litter(
@@ -326,6 +346,7 @@ def write_to_log(string, log_path, access_key_id, secret_access_key):
 
 
 def postprocess_subtile(parameters_dict):
+    print('start')
     min_lat = parameters_dict['MIN_LAT']
     min_lon = parameters_dict['MIN_LON']
     lat_increment = parameters_dict['LAT_INCREMENT']
@@ -346,7 +367,7 @@ def postprocess_subtile(parameters_dict):
         region_name='us-west-2',
     )
 
-    _set_thread_settings()
+    # _set_thread_settings()
 
     aws_session = AWSSession(core_session, requester_pays=True)
     log_path = f's3://carbonplan-climatetrace/v1.1/postprocess_log/{min_lat}_{min_lon}_{lat_increment}_{lon_increment}.txt'
@@ -355,20 +376,42 @@ def postprocess_subtile(parameters_dict):
     fs = fsspec.get_filesystem_class('s3')(key=access_key_id, secret=secret_access_key)
     data_mapper = fs.get_mapper(data_path)
 
-    ds = biomass_tile_timeseries(
-        subtile_ul_lat, subtile_ul_lon, year0, year1, tile_degree_size=tile_degree_size
-    )
+    print(f'building time series {datetime.now()}')
+    with dask.config.set(scheduler='threads'):
+        ds = biomass_tile_timeseries(
+            subtile_ul_lat, subtile_ul_lon, year0, year1, tile_degree_size=tile_degree_size
+        )
     if ds.biomass.notnull().sum().values == 0:
         write_to_log('empty scene', log_path, access_key_id, secret_access_key)
     else:
         with rio.Env(aws_session):
-            with dask.config.set(scheduler='single-threaded'):
-
+            with dask.config.set(scheduler='threads'):
+                # writing AGB raw
+                task = (
+                    ds.rename({'biomass': 'AGB_raw', 'x': 'lon', 'y': 'lat'})
+                    .chunk({'lat': 4000, 'lon': 4000, 'time': 1})
+                    .transpose('time', 'lat', 'lon')[['AGB_raw']]
+                    .to_zarr(
+                        data_mapper,
+                        mode='a',
+                        region={
+                            "lat": slice(
+                                lat_increment * 4000, (lat_increment + tile_degree_size) * 4000
+                            ),
+                            'lon': slice(
+                                lon_increment * 4000, (lon_increment + tile_degree_size) * 4000
+                            ),
+                            'time': slice(0, year1 - year0),
+                        },
+                        compute=False,
+                    )
+                )
                 # add all other postprocessing
+                print(f'fillna  {datetime.now()}')
                 ds = fillna_mask_and_calc_carbon_pools(ds, chunks_dict=chunks_dict)
                 # do the interpolation
+                print(f'change detection  {datetime.now()}')
                 smoothed, pvalue, breakpoint = perform_change_detection(ds.biomass)
-                ds = ds.rename({'biomass': 'AGB_raw'})
                 ds['AGB'] = smoothed
                 ds['pvalue'] = pvalue
                 ds['breakpoint'] = breakpoint
@@ -377,11 +420,12 @@ def postprocess_subtile(parameters_dict):
                     {'time': pd.date_range(str(year0), str(year1), freq='A')}
                 ).compute()
                 # rechunk aligning with the template file
-                ds = ds.chunk({'lat': 4000, 'lon': 4000, 'time': 1})
+                ds = ds.chunk({'lat': 4000, 'lon': 4000, 'time': 1}).transpose('time', 'lat', 'lon')
                 for v in ds.data_vars:
                     if 'chunks' in ds[v].encoding:
                         del ds[v].encoding['chunks']
-                task = ds.to_zarr(
+                print(f'writing {datetime.now()}')
+                task = ds[['AGB', 'pvalue', 'breakpoint']].to_zarr(
                     data_mapper,
                     mode='a',
                     region={
@@ -396,7 +440,7 @@ def postprocess_subtile(parameters_dict):
                     compute=False,
                 )
                 task.compute(retries=10)
-
+                print(f'done {datetime.now()}')
         write_to_log('done', log_path, access_key_id, secret_access_key)
 
 
