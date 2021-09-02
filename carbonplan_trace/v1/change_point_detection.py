@@ -17,7 +17,7 @@ def calc_fstat_pvalue(rss1, rss2, p1, p2, n, calc_p=False):
     """
     num = (rss1 - rss2) / (p2 - p1)
     denom = rss2 / (n - p2)
-    f = num / denom
+    f = (num / denom).astype('float32')
     del num, denom
     p = None
     if calc_p:
@@ -26,14 +26,17 @@ def calc_fstat_pvalue(rss1, rss2, p1, p2, n, calc_p=False):
 
 
 def make_predictions_3D(x, pred, breakpoint, has_breakpoint, slope1, slope2, int1, int2):
+    pred1 = (int1 + slope1 * x).transpose(*pred.dims).astype('float32')
+    pred2 = (int2 + slope2 * x).transpose(*pred.dims).astype('float32')
+
     for i in range(1, len(x.time)):
         mask1 = has_breakpoint & (breakpoint == i) & (x < i)
-        pred1 = (int1 + slope1 * x).transpose(*pred.dims).astype('float32')
         pred = xr.where(mask1, x=pred1, y=pred)
 
         mask2 = has_breakpoint & (breakpoint == i) & (x >= i)
-        pred2 = (int2 + slope2 * x).transpose(*pred.dims).astype('float32')
         pred = xr.where(mask2, x=pred2, y=pred)
+        del mask1, mask2
+    del pred1, pred2
 
     return pred.astype('float32')
 
@@ -70,10 +73,11 @@ def linear_regression_3D(x, y, calc_p=True):
 
         # 7. Compute F-stat and p value
         rss_null = calc_rss(y, ymean).astype('float32')
+        del y
         fstat, pvalue = calc_fstat_pvalue(rss1=rss_null, rss2=rss, p1=1, p2=2, n=n, calc_p=calc_p)
 
         # polyfit & curvefit in xarray
-        del xmean, ymean, pred, rss_null, fstat, y
+        del xmean, ymean, pred, rss_null, fstat
 
     elif n == 1:
         zero_array = xr.DataArray(0, dims=ymean.dims, coords=ymean.coords)
@@ -184,16 +188,18 @@ def perform_change_detection(da):
     # 6. If we think there is a break point, get p value for the 2 piece, otherwise save the p value for 1 linear regression
     print(f'6. {datetime.now()}')
     rss = calc_rss(da, pred)
-    rss_null = calc_rss(da, da.mean(dim='time'))
+    ymean = da.mean(dim='time')
+    rss_null = calc_rss(da, ymean)
+    del da
     _, p_total = calc_fstat_pvalue(rss1=rss_null, rss2=rss, p1=1, p2=k, n=n, calc_p=True)
     _, p_breakpoint = calc_fstat_pvalue(rss1=rss_null, rss2=rss, p1=1, p2=2 * k, n=n, calc_p=True)
-    pvalue = xr.where(has_breakpoint, x=p_breakpoint, y=p_total).compute()
+    pvalue = xr.where(has_breakpoint, x=p_breakpoint, y=p_total)
     pvalue = pvalue.astype('float32')
     del rss, rss_null, p_breakpoint, p_total
 
     # 7. Update predictions based on p value
     print(f'7. {datetime.now()}')
-    pred = xr.where(pvalue <= 0.05, x=pred, y=da.mean(dim='time')).compute()
+    pred = xr.where(pvalue <= 0.05, x=pred, y=ymean)
     pred = pred.astype('float32')
 
     return pred, pvalue, breakpoint.where(has_breakpoint)
