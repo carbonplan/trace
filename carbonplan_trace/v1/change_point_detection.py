@@ -66,18 +66,18 @@ def linear_regression_3D(x, y, calc_p=True):
         slope = (cov / (x.std(dim='time') ** 2)).astype('float32')
         del cov
         intercept = (ymean - xmean * slope).astype('float32')
+        del xmean
 
         # 6. Compute RSS
         pred = ((slope * x) + intercept).transpose(*y.dims).astype('float32')
-        rss = calc_rss(y, pred).astype('float32')
-
+        rss = calc_rss(y, pred).astype('float32').compute()
+        del pred
         # 7. Compute F-stat and p value
-        rss_null = calc_rss(y, ymean).astype('float32')
-        del y
+        rss_null = calc_rss(y, ymean).astype('float32').compute()
+        del y, ymean
         fstat, pvalue = calc_fstat_pvalue(rss1=rss_null, rss2=rss, p1=1, p2=2, n=n, calc_p=calc_p)
-
-        # polyfit & curvefit in xarray
-        del xmean, ymean, pred, rss_null, fstat
+        del rss_null, fstat
+        # to investigate: polyfit & curvefit in xarray
 
     elif n == 1:
         zero_array = xr.DataArray(0, dims=ymean.dims, coords=ymean.coords)
