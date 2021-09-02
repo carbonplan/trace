@@ -116,7 +116,7 @@ def perform_change_detection(da):
     # 3. fit one linear regression for entire time series
     print(f'3. {datetime.now()}')
     slope_total, int_total, rss_total, p_total = linear_regression_3D(x=x, y=da, calc_p=True)
-    pred_total = (int_total + slope_total * x).transpose(*da.dims).astype('float32')
+    pred_total = (int_total + slope_total * x).transpose(*da.dims).astype('float32').compute()
     print(pred_total)
     del slope_total, int_total, p_total
 
@@ -147,7 +147,7 @@ def perform_change_detection(da):
             ).astype('int8')
             output_slope1, output_slope2, output_int1, output_int2 = slope1, slope2, int1, int2
         else:
-            mask = f_breakpoint > max_f
+            mask = (f_breakpoint > max_f).compute()
             max_f = xr.where(mask, x=f_breakpoint, y=max_f)
             del f_breakpoint
             breakpoint = xr.where(mask, x=i, y=breakpoint)
