@@ -90,7 +90,7 @@ def linear_regression_3D(x, y, calc_p=True):
 
 def perform_change_detection(da):
     # 1. initialize parameter values
-    # print(f'1. {datetime.now()}')
+    print(f'1. {datetime.now()}')
     # this assumes that we're performing chow test for a time series with no additional independent variables
     # thus degree of freedom (k) = 2 (intercept, slope)
     k = 2
