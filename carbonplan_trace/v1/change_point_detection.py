@@ -107,23 +107,23 @@ def perform_change_detection(da):
     #     critical_value = 10.03  # 90% CI
 
     # 2. initialize x array as the independent variable (i.e. n timestep)
-    print(f'2. {datetime.now()}')
+    # print(f'2. {datetime.now()}')
     # subtracting 1 to be consistent with python index
     # TODO: have static numbers for
     x = xr.DataArray(np.arange(n), dims=['time'], coords=[da.coords['time']])
     da = da.astype('float32')
 
     # 3. fit one linear regression for entire time series
-    print(f'3. {datetime.now()}')
+    # print(f'3. {datetime.now()}')
     slope_total, int_total, rss_total, p_total = linear_regression_3D(x=x, y=da, calc_p=True)
     pred_total = (int_total + slope_total * x).transpose(*da.dims).astype('float32').compute()
-    print(pred_total)
+    # print(pred_total)
     del slope_total, int_total, p_total
 
     # 4. for each break point, fit 2 linear regression model and assess the fit, save the best fit
-    print(f'4. {datetime.now()}')
+    # print(f'4. {datetime.now()}')
     for i in range(1, n):
-        print(f'4.{i} {datetime.now()}')
+        # print(f'4.{i} {datetime.now()}')
         slope1, int1, rss1, _ = linear_regression_3D(
             x=x.isel(time=slice(None, i)), y=da.isel(time=slice(None, i)), calc_p=False
         )
@@ -162,7 +162,7 @@ def perform_change_detection(da):
     del rss_total
 
     # 5. If the best fit from break point regression is better than the critical f value, make predictions based on that model
-    print(f'5. {datetime.now()}')
+    # print(f'5. {datetime.now()}')
     # else make prediction based on the 1 regression model
     has_breakpoint = max_f > critical_value
     del max_f
@@ -176,7 +176,7 @@ def perform_change_detection(da):
         int1=output_int1,
         int2=output_int2,
     ).transpose(*da.dims)
-    print(pred)
+    # print(pred)
 
     del (
         output_slope1,
@@ -186,7 +186,7 @@ def perform_change_detection(da):
     )
 
     # 6. If we think there is a break point, get p value for the 2 piece, otherwise save the p value for 1 linear regression
-    print(f'6. {datetime.now()}')
+    # print(f'6. {datetime.now()}')
     rss = calc_rss(da, pred)
     ymean = da.mean(dim='time')
     rss_null = calc_rss(da, ymean)
