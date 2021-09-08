@@ -181,7 +181,7 @@ def perform_change_detection(da):
         int1=output_int1,
         int2=output_int2,
     ).transpose(*da.dims)
-    print(pred)
+    # print(pred)
 
     del (
         output_slope1,
