@@ -77,10 +77,10 @@ def linear_regression_3D(x, y, calc_p=True):
 
         # 6. Compute RSS
         pred = ((slope * x) + intercept).transpose(*y.dims).astype('float32')
-        rss = calc_rss(y, pred).astype('float32').compute()
+        rss = calc_rss(y, pred).astype('float32')
         del pred
         # 7. Compute F-stat and p value
-        rss_null = calc_rss(y, ymean).astype('float32').compute()
+        rss_null = calc_rss(y, ymean).astype('float32')
         del y, ymean
         fstat, pvalue = calc_fstat_pvalue(rss1=rss_null, rss2=rss, p1=1, p2=2, n=n, calc_p=calc_p)
         del rss_null, fstat
@@ -121,7 +121,7 @@ def perform_change_detection(da):
     # 3. fit one linear regression for entire time series
     # print(f'3. {datetime.now()}')
     slope_total, int_total, rss_total, p_total = linear_regression_3D(x=x, y=da, calc_p=True)
-    pred_total = (int_total + slope_total * x).transpose(*da.dims).astype('float32').compute()
+    pred_total = (int_total + slope_total * x).transpose(*da.dims).astype('float32')
     # print(pred_total)
     del slope_total, int_total, p_total
 
@@ -152,7 +152,7 @@ def perform_change_detection(da):
             ).astype('int8')
             output_slope1, output_slope2, output_int1, output_int2 = slope1, slope2, int1, int2
         else:
-            mask = (f_breakpoint > max_f).compute()
+            mask = f_breakpoint > max_f
             max_f = xr.where(mask, x=f_breakpoint, y=max_f)
             del f_breakpoint
             breakpoint = xr.where(mask, x=i, y=breakpoint)
@@ -232,7 +232,7 @@ def run_change_point_detection_for_subtile(parameters_dict):
     )
     template_chunk_dict = {'lat': 4000, 'lon': 4000, 'time': 1}
 
-    # _set_thread_settings()
+    postprocess._set_thread_settings()
 
     aws_session = AWSSession(core_session, requester_pays=True)
     log_path = f'{log_bucket}{min_lat}_{min_lon}_{lat_increment}_{lon_increment}.txt'
