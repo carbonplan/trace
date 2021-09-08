@@ -1,8 +1,15 @@
 from datetime import datetime
 
+import boto3
+import dask
+import fsspec
 import numpy as np
+import rasterio as rio
 import scipy
 import xarray as xr
+from rasterio.session import AWSSession
+
+from ..v1 import postprocess
 
 
 def calc_rss(ytrue, ypred):
@@ -94,7 +101,7 @@ def linear_regression_3D(x, y, calc_p=True):
 
 def perform_change_detection(da):
     # 1. initialize parameter values
-    print(f'1. {datetime.now()}')
+    # print(f'1. {datetime.now()}')
     # this assumes that we're performing chow test for a time series with no additional independent variables
     # thus degree of freedom (k) = 2 (intercept, slope)
     k = 2
@@ -103,13 +110,11 @@ def perform_change_detection(da):
     # interpolating between pi_0 of 0.1 and 0.15 available on the table to find these values
     n = len(da.time)
     assert n == 7
-    critical_value = 12.27  # 11.81 # 95% CI
+    critical_value = 11.81  # 95% CI
     #     critical_value = 10.03  # 90% CI
 
     # 2. initialize x array as the independent variable (i.e. n timestep)
     # print(f'2. {datetime.now()}')
-    # subtracting 1 to be consistent with python index
-    # TODO: have static numbers for
     x = xr.DataArray(np.arange(n), dims=['time'], coords=[da.coords['time']])
     da = da.astype('float32')
 
@@ -198,8 +203,76 @@ def perform_change_detection(da):
     del rss, rss_null, p_breakpoint, p_total
 
     # 7. Update predictions based on p value
-    print(f'7. {datetime.now()}')
+    # print(f'7. {datetime.now()}')
     pred = xr.where(pvalue <= 0.05, x=pred, y=ymean)
     pred = pred.astype('float32')
 
     return pred, pvalue, breakpoint.where(has_breakpoint)
+
+
+def run_change_point_detection_for_subtile(parameters_dict):
+    min_lat = parameters_dict['MIN_LAT']
+    min_lon = parameters_dict['MIN_LON']
+    lat_increment = parameters_dict['LAT_INCREMENT']
+    lon_increment = parameters_dict['LON_INCREMENT']
+    year0 = parameters_dict['YEAR_0']
+    year1 = parameters_dict['YEAR_1']
+    tile_degree_size = parameters_dict['TILE_DEGREE_SIZE']
+    data_path = parameters_dict['DATA_PATH']
+    log_bucket = parameters_dict['LOG_BUCKET']
+    access_key_id = parameters_dict['ACCESS_KEY_ID']
+    secret_access_key = parameters_dict['SECRET_ACCESS_KEY']
+
+    subtile_ll_lat = min_lat + lat_increment
+    subtile_ll_lon = min_lon + lon_increment
+    core_session = boto3.Session(
+        aws_access_key_id=access_key_id,
+        aws_secret_access_key=secret_access_key,
+        region_name='us-west-2',
+    )
+    template_chunk_dict = {'lat': 4000, 'lon': 4000, 'time': 1}
+
+    # _set_thread_settings()
+
+    aws_session = AWSSession(core_session, requester_pays=True)
+    log_path = f'{log_bucket}{min_lat}_{min_lon}_{lat_increment}_{lon_increment}.txt'
+
+    # we initialize the fs here to ensure that the worker has the correct permissions
+    # in order to write
+    fs = fsspec.get_filesystem_class('s3')(key=access_key_id, secret=secret_access_key)
+    data_mapper = fs.get_mapper(data_path)
+
+    print(f'reading data {datetime.now()}')
+    ds = xr.open_zarr(data_mapper).sel(
+        lat=slice(subtile_ll_lat, subtile_ll_lat + tile_degree_size),
+        lon=slice(subtile_ll_lon, subtile_ll_lon + tile_degree_size),
+    )
+
+    if ds.AGB_na_filled.notnull().sum().values == 0:
+        postprocess.write_to_log('empty scene', log_path, access_key_id, secret_access_key)
+
+    else:
+        with rio.Env(aws_session):
+            with dask.config.set(scheduler='single-threaded'):
+                print(f'change point detection {datetime.now()}')
+                smoothed, pvalue, breakpoint = perform_change_detection(ds.AGB_na_filled)
+                ds['AGB'] = smoothed
+                ds['pvalue'] = pvalue
+                ds['breakpoint'] = breakpoint
+
+                region = {
+                    "lat": slice(lat_increment * 4000, (lat_increment + tile_degree_size) * 4000),
+                    'lon': slice(lon_increment * 4000, (lon_increment + tile_degree_size) * 4000),
+                    'time': slice(0, year1 - year0),
+                }
+                ds = postprocess.prep_ds_for_writing(ds, chuck_dict=template_chunk_dict)
+                # writing raw data
+                task = ds[['AGB', 'pvalue', 'breakpoint']].to_zarr(
+                    data_mapper,
+                    mode='a',
+                    region=region,
+                    compute=False,
+                )
+                task.compute(retries=10)
+                print(f'done {datetime.now()}')
+        postprocess.write_to_log('done', log_path, access_key_id, secret_access_key)
