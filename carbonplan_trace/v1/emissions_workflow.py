@@ -53,8 +53,9 @@ def open_fire_mask(tile_id, resolution=30, y0=2014, y1=2020):
 
 
 def calc_biomass_change(ds):
+    ds = ds.rename({'time': 'year'}).assign_coords({'year': np.arange(2014,2021)})
     # diff by one year, dropping the first year since it will be all nulls
-    return (ds.shift(time=1) - ds).isel(time=slice(1, None))
+    return (ds.shift(year=1) - ds).isel(year=slice(1, None))
 
 
 def convert_to_emissions(ds):
