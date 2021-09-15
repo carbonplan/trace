@@ -123,7 +123,7 @@ def perform_change_detection(da):
     slope_total, int_total, rss_total, p_total = linear_regression_3D(x=x, y=da, calc_p=True)
     pred_total = (int_total + slope_total * x).transpose(*da.dims).astype('float32')
     # print(pred_total)
-    del slope_total, int_total, p_total
+    del slope_total, int_total
 
     # 4. for each break point, fit 2 linear regression model and assess the fit, save the best fit
     # print(f'4. {datetime.now()}')
@@ -191,19 +191,18 @@ def perform_change_detection(da):
     )
 
     # 6. If we think there is a break point, get p value for the 2 piece, otherwise save the p value for 1 linear regression
-    # print(f'6. {datetime.now()}')
+    print(f'6. {datetime.now()}')
     rss = calc_rss(da, pred)
     ymean = da.mean(dim='time')
     rss_null = calc_rss(da, ymean)
     del da
-    _, p_total = calc_fstat_pvalue(rss1=rss_null, rss2=rss, p1=1, p2=k, n=n, calc_p=True)
     _, p_breakpoint = calc_fstat_pvalue(rss1=rss_null, rss2=rss, p1=1, p2=2 * k, n=n, calc_p=True)
     pvalue = xr.where(has_breakpoint, x=p_breakpoint, y=p_total)
     pvalue = pvalue.astype('float32')
     del rss, rss_null, p_breakpoint, p_total
 
     # 7. Update predictions based on p value
-    # print(f'7. {datetime.now()}')
+    print(f'7. {datetime.now()}')
     pred = xr.where(pvalue <= 0.05, x=pred, y=ymean)
     pred = pred.astype('float32')
 
@@ -232,7 +231,7 @@ def run_change_point_detection_for_subtile(parameters_dict):
     )
     template_chunk_dict = {'lat': 4000, 'lon': 4000, 'time': 1}
 
-    postprocess._set_thread_settings()
+    # postprocess._set_thread_settings()
 
     aws_session = AWSSession(core_session, requester_pays=True)
     log_path = f'{log_bucket}{min_lat}_{min_lon}_{lat_increment}_{lon_increment}.txt'
