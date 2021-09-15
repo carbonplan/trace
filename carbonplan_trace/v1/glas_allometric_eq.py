@@ -211,6 +211,8 @@ ECO_TO_REALM_MAP = {}
 for realm, list_of_eco in REALM_GROUPINGS.items():
     new_map = {eco: realm for eco in list_of_eco}
     ECO_TO_REALM_MAP.update(new_map)
+for i in [0, 129, 133]:
+    ECO_TO_REALM_MAP[i] = 'ice'
 
 
 CONUS_CONIFER_GROUPING = {
@@ -969,9 +971,11 @@ def get_realm_from_ecoregion(ecoregions):
     """
     input and output are both data arrays
     """
+    ECO_TO_REALM_MAP[-999] = np.nan
+
     realms = xr.apply_ufunc(
         ECO_TO_REALM_MAP.__getitem__,
-        ecoregions,
+        ecoregions.fillna(-999),
         vectorize=True,
         dask='parallelized',
         output_dtypes=['object'],

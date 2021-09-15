@@ -34,4 +34,12 @@ repos:
 -   repo: https://github.com/deathbeds/prenotebook
     rev: f5bdb72a400f1a56fe88109936c83aa12cc349fa
     hooks:
-    - id: prenotebook
+      - id: prenotebook
+        args:
+          [
+            "--keep-output",
+            "--verify-order",
+            "--line-width",
+            "100",
+            "--keep-execution-count",
+          ]

@@ -42,4 +42,10 @@ def get_versions(
 
 def zarr_is_complete(store, check='.zmetadata'):
     """Return true if Zarr store is complete"""
-    return check in store
+    if not isinstance(check, list):
+        check = [check]
+
+    out = True
+    for c in check:
+        out = out & (c in store)
+    return out
