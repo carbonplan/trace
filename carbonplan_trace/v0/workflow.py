@@ -78,7 +78,7 @@ def process_one_tile(tile_id):
 
     # calc emissions
     if not (skip_existing and zarr_is_complete(tot_mapper) and zarr_is_complete(split_mapper)):
-
+        
         lat, lon = tile_id.split('_')
         fire_da = open_fire_mask(tile_id).fillna(0)
         change_ds = open_hansen_change_tile(lat, lon)

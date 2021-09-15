@@ -30,7 +30,7 @@ def calc_emissions(ds, y0=2001, y1=2020):
 
 def compute_grid_area(da):
     """
-    Compute the geographic area (in square meters) of every pixel in the data array provided.
+    Compute the geographic area (in ha) of every pixel in the data array provided.
 
     Parameters
     ----------
@@ -40,7 +40,7 @@ def compute_grid_area(da):
     Returns
     -------
     areacella : xarray.DataArray
-        DataArray with grid cell areas in square meters
+        DataArray with grid cell areas in ha
     """
 
     dϕ = np.radians((da["lat"][1] - da["lat"][0]).values)
@@ -51,7 +51,7 @@ def compute_grid_area(da):
     return areacella / SQM_PER_HA
 
 
-def coarsen_emissions(ds, mask_var='emissions', factor=100):
+def coarsen_emissions(ds, mask_var='emissions', factor=100, method='sum'):
     """
     Coarsen emissions by the provided factor
 
@@ -61,6 +61,8 @@ def coarsen_emissions(ds, mask_var='emissions', factor=100):
         Dataset with emissions and spatial coordinates (lon and lat)
     factor : int
         The factor by for which the emissions data will be coarsened
+    method: str
+        Method used for coarsen, either "sum" or "mean" 
 
     Returns
     -------
@@ -72,4 +74,9 @@ def coarsen_emissions(ds, mask_var='emissions', factor=100):
         da_mask = da_mask.isel(year=0, drop=True)
 
     da_area = compute_grid_area(da_mask)
-    return (ds * da_area).coarsen(lat=factor, lon=factor).sum()
+    if method == 'sum':
+        return (ds * da_area).coarsen(lat=factor, lon=factor).sum()
+    elif method == 'mean':
+        return (ds * da_area).coarsen(lat=factor, lon=factor).sum() / da_area.coarsen(lat=factor, lon=factor).sum()
+    else:
+        raise(NotImplementedError('method must be either sum or mean'))
