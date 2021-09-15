@@ -10,7 +10,7 @@
 [![GitHub][github-badge]][github]
 [![Build Status]][actions]
 ![MIT License][]
-[![Binder](https://mybinder.org/badge_logo.svg)](https://binder.pangeo.io/v2/gh/carbonplan/trace/main)
+[![Binder](https://aws-uswest2-binder.pangeo.io/badge_logo.svg)](https://aws-uswest2-binder.pangeo.io/v2/gh/carbonplan/trace/main?filepath=notebooks%2Fblogpost_sample_notebook.ipynb)
 
 [github]: https://github.com/carbonplan/trace
 [github-badge]: https://badgen.net/badge/-/github?icon=github&label
