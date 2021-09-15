@@ -22,13 +22,13 @@ This repository includes example Jupyter notebooks and other utilities for a col
 
 This project is a work in progress. Nothing here is final or complete.
 
-We have completed the scripts and notebooks for delivery of version 0 of the dataset (`carbonplan_trace/v0`) which largely reproduces and extends work by Zarin et al (2016) as hosted on the Global Forest Watch platform. 
+We have completed the scripts and notebooks for delivery of version 0 of the dataset (`carbonplan_trace/v0`) which largely reproduces and extends work by Zarin et al (2016) as hosted on the Global Forest Watch platform.
 
 Input datasets include:
 * aboveground biomass for year 2000 (Zarin et al., 2016)
 * binary masks of tree cover loss year for 2001-2020 (Hansen et al (2013))
 * Suomi NPP (VIIRS) Fire Masks for 2011-2020 (Schroeder et al., 2014)
-* country boundary shapefile from the Database of Global Administrative Areas (GADM) version 3.6. *Note: Geopolitical boundaries that have changed over the period of record will be tagged to the static country designation as defined in GADM v3.6.* 
+* country boundary shapefile from the Database of Global Administrative Areas (GADM) version 3.6. *Note: Geopolitical boundaries that have changed over the period of record will be tagged to the static country designation as defined in GADM v3.6.*
 
 Some tips for reproducing this effort:
 

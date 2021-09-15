@@ -16,136 +16,154 @@ sources:
         type: str
         default: treecover2000
       lat:
-        description: latitude-tile
+        description: latitude of northwest corner of tile
         type: str
-        default: 10S
+        default: 00N
       lon:
-        description: longitude-tile
+        description: longitude of northwest corner of tile
         type: str
-        default: 070W
+        default: 060W
     driver: rasterio
     args:
       urlpath: 'https://storage.googleapis.com/earthenginepartners-hansen/GFC-2020-v1.8/Hansen_GFC-2020-v1.8_{{ variable }}_{{ lat }}_{{ lon }}.tif'
       chunks: {'y': 4000, 'x': 4000}
 
-  gfw_biomass:
-    description: Global 30m above ground biomass
-    metadata:
-      url: 'http://data.globalforestwatch.org/datasets/8f93a6f94a414f9588ce4657a39c59ff_1'
-      tags:
-        - biomass
-    parameters:
-      lat:
-        description: latitude-tile
-        type: str
-        default: 10S
-      lon:
-        description: longitude-tile
-        type: str
-        default: 070W
-    driver: rasterio
-    args:
-      urlpath: 'http://gfw2-data.s3.amazonaws.com/climate/WHRC_biomass/WHRC_V4/Processed/{{ lat }}_{{lon}}_t_aboveground_biomass_ha_2000.tif'
-      chunks: {'y': 4000, 'x': 4000}
-      
-gwf_emissions:
-    description: Global 30m emissions from Harris et al. 2021
-    metadata:
-      url: 'https://data.globalforestwatch.org/datasets/forest-greenhouse-gas-emissions-1'
-      tags:
-        - biomass
-    parameters:
-      lat:
-        description: latitude-tile
-        type: str
-        default: 10S
-      lon:
-        description: longitude-tile
-        type: str
-        default: 070W
-      unit:
-        description: emission units
-        type: str
-        default: Mg_CO2e_ha
-    driver: rasterio
-    args:
-      urlpath: 'https://data-api.globalforestwatch.org/dataset/gfw_forest_carbon_gross_emissions/v20210331/download/geotiff?grid=10/40000&tile_id={{ lat }}_{{lon}}&pixel_meaning={{ unit }}'
-      chunks: {'y': 4000, 'x': 4000}
+  # gfw_biomass:
+  #   description: Global 30m above ground biomass
+  #   metadata:
+  #     url: 'http://data.globalforestwatch.org/datasets/8f93a6f94a414f9588ce4657a39c59ff_1'
+  #     tags:
+  #       - biomass
+  #   parameters:
+  #     lat:
+  #       description: latitude of northwest corner of tile
+  #       type: str
+  #       default: 00N
+  #     lon:
+  #       description: longitude of northwest corner of tile
+  #       type: str
+  #       default: 060W
+  #   driver: rasterio
+  #   args:
+  #     urlpath: 'http://gfw2-data.s3.amazonaws.com/climate/WHRC_biomass/WHRC_V4/Processed/{{ lat }}_{{lon}}_t_aboveground_biomass_ha_2000.tif'
+  #     chunks: {'y': 4000, 'x': 4000}
 
-emissions_30m_partitioned:
-    description: Global 30m emissions from CarbonPlan partitioned into fire and non-fire related components
-    metadata:
-      url: ''
-      tags:
-        - emissions_partitioned
-    parameters:
-      lat:
-        description: latitude-tile
-        type: str
-        default: 10S
-      lon:
-        description: longitude-tile
-        type: str
-        default: 070W
-      unit:
-        description: emission units
-        type: str
-        default: Mg_CO2e_ha
-    driver: rasterio
-    args:
-      urlpath: 'https://carbonplan-climatetrace.s3.us-west-2.amazonaws.com/v0.4/tiles/30m/{{ lat }}_{{ lon }}_split.zarr'
-      chunks: {'y': 4000, 'x': 4000}
-      
-emissions_30m:
-    description: Global 30 m emissions from CarbonPlan
-    metadata:
-      url: ''
-      tags:
-        - emissions
-    parameters:
-      lat:
-        description: latitude-tile
-        type: str
-        default: 10S
-      lon:
-        description: longitude-tile
-        type: str
-        default: 070W
-      unit:
-        description: emission units
-        type: str
-        default: Mg_CO2e_ha
-    driver: rasterio
-    args:
-      urlpath: 'https://carbonplan-climatetrace.s3.us-west-2.amazonaws.com/v0.4/tiles/30m/{{ lat }}_{{ lon }}.zarr'
-      chunks: {'y': 4000, 'x': 4000}
-      
-emissions_3km:
-    description: Global 3 km emissions from CarbonPlan partitioned into fire and non-fire related components
-    metadata:
-      url: ''
-      tags:
-        - emissions
-    parameters:
-      unit:
-        description: emission units
-        type: str
-        default: Mg_CO2e
-    driver: rasterio
-    args:
-      urlpath: 'https://carbonplan-climatetrace.s3.us-west-2.amazonaws.com/v0.4/global/3000m/raster_tot.zarr'      
-      
-emissions_3km_partitioned:
-    description: Global 3 km emissions from CarbonPlan
-    metadata:
-      url: ''
-      tags:
-        - emissions
-    parameters:
-      unit:
-        description: emission units
-        type: str
-        default: Mg_CO2e
-    driver: rasterio
-    args:
-      urlpath: 'https://carbonplan-climatetrace.s3.us-west-2.amazonaws.com/v0.4/global/3000m/raster_split.zarr'      
+  # gfw_emissions:
+  #     description: Global 30m emissions from Harris et al. 2021
+  #     metadata:
+  #       url: 'https://data.globalforestwatch.org/datasets/forest-greenhouse-gas-emissions-1'
+  #       tags:
+  #         - biomass
+  #     parameters:
+  #       lat:
+  #         description: latitude of northwest corner of tile
+  #         type: str
+  #         default: 00N
+  #       lon:
+  #         description: longitude of northwest corner of tile
+  #         type: str
+  #         default: 060W
+  #       unit:
+  #         description: emission units
+  #         type: str
+  #         default: Mg_CO2e_ha
+  #     driver: rasterio
+  #     args:
+  #       urlpath: 'https://data-api.globalforestwatch.org/dataset/gfw_forest_carbon_gross_emissions/v20210331/download/geotiff?grid=10/40000&tile_id={{ lat }}_{{lon}}&pixel_meaning={{ unit }}'
+  #       chunks: {'y': 4000, 'x': 4000}
+
+  emissions_30m_partitioned:
+      description: Global 30m emissions from CarbonPlan partitioned into fire and non-fire related components. See carbonplan.org/blog/climate-trace-release for more information.
+      metadata:
+        url: ''
+        tags:
+          - emissions_partitioned
+      parameters:
+        lat:
+          description: latitude of northwest corner of tile
+          type: str
+          default: 00N
+        lon:
+          description: longitude of northwest corner of tile
+          type: str
+          default: 060W
+        unit:
+          description: emission units
+          type: str
+          default: Mg_CO2e_ha
+      driver: zarr
+      args:
+        urlpath: 'https://carbonplan-climatetrace.s3.us-west-2.amazonaws.com/v0.4/tiles/30m/{{ lat }}_{{ lon }}_split.zarr'
+        consolidated: True
+
+  emissions_30m:
+      description: Global 30 m emissions from CarbonPlan
+      metadata:
+        url: ''
+        tags:
+          - emissions
+      parameters:
+        lat:
+          description: latitude of northwest corner of tile
+          type: str
+          default: 00N
+        lon:
+          description: longitude of northwest corner of tile
+          type: str
+          default: 060W
+        unit:
+          description: emission units
+          type: str
+          default: Mg_CO2e_ha
+      driver: zarr
+      args:
+        urlpath: 'https://carbonplan-climatetrace.s3.us-west-2.amazonaws.com/v0.4/tiles/30m/{{ lat }}_{{ lon }}_tot.zarr'
+        consolidated: True
+
+  emissions_3km:
+      description: Global 3 km emissions from CarbonPlan
+      metadata:
+        url: ''
+        tags:
+          - emissions
+      parameters:
+        unit:
+          description: emission units
+          type: str
+          default: Mg_CO2e
+      driver: zarr
+      args:
+        urlpath: 'https://carbonplan-climatetrace.s3.us-west-2.amazonaws.com/v0.4/global/3000m/raster_tot.zarr'
+        consolidated: True
+
+  emissions_3km_partitioned:
+      description: Global 3 km emissions from CarbonPlan partitioned into fire and non-fire related components
+      metadata:
+        url: ''
+        tags:
+          - emissions
+      parameters:
+        unit:
+          description: emission units
+          type: str
+          default: Mg_CO2e
+      driver: zarr
+      args:
+        urlpath: 'https://carbonplan-climatetrace.s3.us-west-2.amazonaws.com/v0.4/global/3000m/raster_split.zarr'
+        consolidated: True
+
+  emissions_one_degree:
+      description: Global 1-degree resolution emissions from CarbonPlan
+      metadata:
+        url: ''
+        tags:
+          - emissions
+      parameters:
+        unit:
+          description: emission units
+          type: str
+          default: Mg_CO2e
+      driver: zarr
+      args:
+        urlpath: 'https://carbonplan-climatetrace.s3.us-west-2.amazonaws.com/v0.4/blog/total_emissions.zarr'
+        consolidated: True
