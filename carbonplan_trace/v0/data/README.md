@@ -36,6 +36,6 @@ Here we highlight the main data products produced in V0:
 | Dataset                     | Description                                                                       |
 | --------------------------- | --------------------------------------------------------------------------------- |
 | `emissions_30m`             | Global 30 m gross emissions                                                       |
-| `emissions_30m_partitioned` | Global 30m gross emissions partitioned into fire and non-fire related components  |
+| `emissions_30m_partitioned` | Global 30 m gross emissions partitioned into fire and non-fire related components  |
 | `emissions_3km`             | Global 3 km gross emissions                                                       |
 | `emissions_3km_partitioned` | Global 3 km gross emissions partitioned into fire and non-fire related components |
