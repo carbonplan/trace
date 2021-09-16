@@ -66,5 +66,5 @@ dependencies:
   - pip:
       - carbonplan
       - carbonplan-data
-      - carbonplan-styles
+      - carbonplan-styles>=0.4.1
       - carbonplan-trace
