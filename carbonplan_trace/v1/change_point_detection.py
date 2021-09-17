@@ -7,6 +7,7 @@ import numpy as np
 import rasterio as rio
 import scipy
 import xarray as xr
+import pandas as pd
 from rasterio.session import AWSSession
 
 from ..v1 import postprocess
@@ -191,7 +192,7 @@ def perform_change_detection(da):
     )
 
     # 6. If we think there is a break point, get p value for the 2 piece, otherwise save the p value for 1 linear regression
-    print(f'6. {datetime.now()}')
+    # print(f'6. {datetime.now()}')
     rss = calc_rss(da, pred)
     ymean = da.mean(dim='time')
     rss_null = calc_rss(da, ymean)
@@ -202,7 +203,7 @@ def perform_change_detection(da):
     del rss, rss_null, p_breakpoint, p_total
 
     # 7. Update predictions based on p value
-    print(f'7. {datetime.now()}')
+    # print(f'7. {datetime.now()}')
     pred = xr.where(pvalue <= 0.05, x=pred, y=ymean)
     pred = pred.astype('float32')
 
@@ -242,29 +243,44 @@ def run_change_point_detection_for_subtile(parameters_dict):
     data_mapper = fs.get_mapper(data_path)
 
     print(f'reading data {datetime.now()}')
-    ds = xr.open_zarr(data_mapper).sel(
-        lat=slice(subtile_ll_lat, subtile_ll_lat + tile_degree_size),
-        lon=slice(subtile_ll_lon, subtile_ll_lon + tile_degree_size),
-    )
+    with rio.Env(aws_session):
+        with dask.config.set(scheduler='single-threaded'):
+            ds = xr.open_zarr(data_mapper).sel(
+                lat=slice(subtile_ll_lat, subtile_ll_lat + tile_degree_size),
+                lon=slice(subtile_ll_lon, subtile_ll_lon + tile_degree_size),
+            )
 
-    if ds.AGB_na_filled.notnull().sum().values == 0:
-        postprocess.write_to_log('empty scene', log_path, access_key_id, secret_access_key)
+            if ds.AGB_raw.notnull().sum().values == 0:
+                postprocess.write_to_log('empty scene', log_path, access_key_id, secret_access_key)
 
-    else:
-        with rio.Env(aws_session):
-            with dask.config.set(scheduler='single-threaded'):
-                print(f'change point detection {datetime.now()}')
-                smoothed, pvalue, breakpoint = perform_change_detection(ds.AGB_na_filled)
-                ds['AGB'] = smoothed
-                ds['pvalue'] = pvalue
-                ds['breakpoint'] = breakpoint
-
+            else:
                 region = {
                     "lat": slice(lat_increment * 4000, (lat_increment + tile_degree_size) * 4000),
                     'lon': slice(lon_increment * 4000, (lon_increment + tile_degree_size) * 4000),
                     'time': slice(0, year1 - year0),
                 }
-                ds = postprocess.prep_ds_for_writing(ds, chuck_dict=template_chunk_dict)
+                time_coords = {'time': pd.date_range(str(year0), str(year1), freq='A')}
+                print(f'filling nulls {datetime.now()}')
+                # fill nulls by interpolating
+                ds = ds.assign_coords({'time': np.arange(year0, year1)})
+                ds = postprocess.fill_nulls(ds[['AGB_raw']].rename({'AGB_raw': 'biomass'}))
+                ds = postprocess.prep_ds_for_writing(ds, coords_dict=time_coords, chuck_dict=template_chunk_dict)
+                # writing AGB with na filled
+                task = ds.rename({'biomass': 'AGB_na_filled'})[['AGB_na_filled']].to_zarr(
+                    data_mapper,
+                    mode='a',
+                    region=region,
+                    compute=False,
+                )
+                task.compute(retries=10)
+
+                print(f'change point detection {datetime.now()}')
+                smoothed, pvalue, breakpoint = perform_change_detection(ds.biomass)
+                ds['AGB'] = smoothed
+                ds['pvalue'] = pvalue
+                ds['breakpoint'] = breakpoint
+
+                ds = postprocess.prep_ds_for_writing(ds, coords_dict=time_coords, chuck_dict=template_chunk_dict)
                 # writing raw data
                 task = ds[['AGB', 'pvalue', 'breakpoint']].to_zarr(
                     data_mapper,
