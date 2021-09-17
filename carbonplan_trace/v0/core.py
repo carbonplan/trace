@@ -62,7 +62,7 @@ def coarsen_emissions(ds, mask_var='emissions', factor=100, method='sum'):
     factor : int
         The factor by for which the emissions data will be coarsened
     method: str
-        Method used for coarsen, either "sum" or "mean" 
+        Method used for coarsen, either "sum" or "mean"
 
     Returns
     -------
@@ -77,6 +77,8 @@ def coarsen_emissions(ds, mask_var='emissions', factor=100, method='sum'):
     if method == 'sum':
         return (ds * da_area).coarsen(lat=factor, lon=factor).sum()
     elif method == 'mean':
-        return (ds * da_area).coarsen(lat=factor, lon=factor).sum() / da_area.coarsen(lat=factor, lon=factor).sum()
+        return (ds * da_area).coarsen(lat=factor, lon=factor).sum() / da_area.coarsen(
+            lat=factor, lon=factor
+        ).sum()
     else:
-        raise(NotImplementedError('method must be either sum or mean'))
+        raise (NotImplementedError('method must be either sum or mean'))
