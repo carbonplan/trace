@@ -180,23 +180,23 @@ def fill_nulls(ds):
     min_biomass = ds.biomass.min().values
     max_biomass = ds.biomass.max().values
 
-    # note that we handle the corner case of having just a single valid number in a time slice/row/column, 
-    # which fails interpolation/extrapolation. 
-    # we do this by identifying these pixels then adding a 1 pixel buffer before doing the interpolation 
+    # note that we handle the corner case of having just a single valid number in a time slice/row/column,
+    # which fails interpolation/extrapolation.
+    # we do this by identifying these pixels then adding a 1 pixel buffer before doing the interpolation
     # note that this will dampen any extrapolation
     print('loading')
     ds = ds.load()
     # with dask.config.set(scheduler="threaded"):
     print('interpolating on time')
-    one_value = (ds.notnull().sum(dim='time') == 1)
+    one_value = ds.notnull().sum(dim='time') == 1
     filled = ds.bfill(dim='time', limit=1).ffill(dim='time', limit=1)
     ds = xr.where(one_value, filled, ds)
-    # use max gap of 6 in this time series of 7 points to avoid error in all null pixels 
+    # use max gap of 6 in this time series of 7 points to avoid error in all null pixels
     ds = ds.interpolate_na(dim='time', method='linear', max_gap=6, fill_value="extrapolate")
 
     print('interpolating on lat/lon')
     for dim in ['lon', 'lat']:
-        one_value = (ds.notnull().sum(dim=dim) == 1)
+        one_value = ds.notnull().sum(dim=dim) == 1
         filled = ds.bfill(dim=dim, limit=1).ffill(dim=dim, limit=1)
         ds = xr.where(one_value, filled, ds)
         ds = ds.interpolate_na(dim=dim, method='linear', fill_value="extrapolate")
@@ -359,7 +359,7 @@ def postprocess_subtile(parameters_dict):
     data_path = parameters_dict['DATA_PATH']
     access_key_id = parameters_dict['ACCESS_KEY_ID']
     secret_access_key = parameters_dict['SECRET_ACCESS_KEY']
-    chunks_dict = parameters_dict['CHUNKS_DICT']
+    # chunks_dict = parameters_dict['CHUNKS_DICT']
 
     subtile_ul_lat = min_lat + lat_increment + tile_degree_size
     subtile_ul_lon = min_lon + lon_increment

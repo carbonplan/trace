@@ -4,10 +4,10 @@ import boto3
 import dask
 import fsspec
 import numpy as np
+import pandas as pd
 import rasterio as rio
 import scipy
 import xarray as xr
-import pandas as pd
 from rasterio.session import AWSSession
 
 from ..v1 import postprocess
@@ -264,7 +264,9 @@ def run_change_point_detection_for_subtile(parameters_dict):
                 # fill nulls by interpolating
                 ds = ds.assign_coords({'time': np.arange(year0, year1)})
                 ds = postprocess.fill_nulls(ds[['AGB_raw']].rename({'AGB_raw': 'biomass'}))
-                ds = postprocess.prep_ds_for_writing(ds, coords_dict=time_coords, chuck_dict=template_chunk_dict)
+                ds = postprocess.prep_ds_for_writing(
+                    ds, coords_dict=time_coords, chuck_dict=template_chunk_dict
+                )
                 # writing AGB with na filled
                 task = ds.rename({'biomass': 'AGB_na_filled'})[['AGB_na_filled']].to_zarr(
                     data_mapper,
@@ -280,7 +282,9 @@ def run_change_point_detection_for_subtile(parameters_dict):
                 ds['pvalue'] = pvalue
                 ds['breakpoint'] = breakpoint
 
-                ds = postprocess.prep_ds_for_writing(ds, coords_dict=time_coords, chuck_dict=template_chunk_dict)
+                ds = postprocess.prep_ds_for_writing(
+                    ds, coords_dict=time_coords, chuck_dict=template_chunk_dict
+                )
                 # writing raw data
                 task = ds[['AGB', 'pvalue', 'breakpoint']].to_zarr(
                     data_mapper,
