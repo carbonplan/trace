@@ -179,27 +179,27 @@ def fill_nulls(ds):
     """
     min_biomass = ds.biomass.min().values
     max_biomass = ds.biomass.max().values
-    print('interpolating on time')
-    with dask.config.set(scheduler="threaded"):
-        ds = ds.interpolate_na(dim='time', method='linear', max_gap=6)  # , bounds_error=False)
-    # now we'll add a try except to handle the corner case of a single pixel in a row
-    # or column that can't be interpolated. by using a try/except we won't interpolate
-    # and instead we will add a 1 pixel buffer around every boundary and then
-    # try extrapolating again. note that this will dampen any extrapolation
-    # slightly for 2x2 cells in which this try/except was triggered
+
+    # note that we handle the corner case of having just a single valid number in a time slice/row/column,
+    # which fails interpolation/extrapolation.
+    # we do this by identifying these pixels then adding a 1 pixel buffer before doing the interpolation
+    # note that this will dampen any extrapolation
+    print('loading')
     ds = ds.load()
-    print('interpolating on x')
-    try:
-        ds = ds.interpolate_na(dim='lon', method='linear', fill_value="extrapolate")
-    except ValueError:
-        ds = ds.bfill(dim='lon', limit=1).ffill(dim='lon', limit=1)
-        ds = ds.interpolate_na(dim='lon', method='linear', fill_value="extrapolate")
-    print('interpolating on y')
-    try:
-        ds = ds.interpolate_na(dim='lat', method='linear', fill_value="extrapolate")
-    except ValueError:
-        ds = ds.bfill(dim='lat', limit=1).ffill(dim='lat', limit=1)
-        ds = ds.interpolate_na(dim='lat', method='linear', fill_value="extrapolate")
+    # with dask.config.set(scheduler="threaded"):
+    print('interpolating on time')
+    one_value = ds.notnull().sum(dim='time') == 1
+    filled = ds.bfill(dim='time', limit=1).ffill(dim='time', limit=1)
+    ds = xr.where(one_value, filled, ds)
+    # use max gap of 6 in this time series of 7 points to avoid error in all null pixels
+    ds = ds.interpolate_na(dim='time', method='linear', max_gap=6, fill_value="extrapolate")
+
+    print('interpolating on lat/lon')
+    for dim in ['lon', 'lat']:
+        one_value = ds.notnull().sum(dim=dim) == 1
+        filled = ds.bfill(dim=dim, limit=1).ffill(dim=dim, limit=1)
+        ds = xr.where(one_value, filled, ds)
+        ds = ds.interpolate_na(dim=dim, method='linear', fill_value="extrapolate")
     ds['biomass'] = ds.biomass.clip(min=min_biomass, max=max_biomass)
 
     return ds
@@ -359,7 +359,7 @@ def postprocess_subtile(parameters_dict):
     data_path = parameters_dict['DATA_PATH']
     access_key_id = parameters_dict['ACCESS_KEY_ID']
     secret_access_key = parameters_dict['SECRET_ACCESS_KEY']
-    chunks_dict = parameters_dict['CHUNKS_DICT']
+    # chunks_dict = parameters_dict['CHUNKS_DICT']
 
     subtile_ul_lat = min_lat + lat_increment + tile_degree_size
     subtile_ul_lon = min_lon + lon_increment
@@ -394,7 +394,6 @@ def postprocess_subtile(parameters_dict):
                     'lon': slice(lon_increment * 4000, (lon_increment + tile_degree_size) * 4000),
                     'time': slice(0, year1 - year0),
                 }
-                # time_coords = {'time': pd.date_range(str(year0), str(year1), freq='A')}
                 ds = ds.rename({'x': 'lon', 'y': 'lat'})
                 ds = prep_ds_for_writing(ds, chuck_dict=template_chunk_dict)
                 # writing raw data
@@ -406,17 +405,17 @@ def postprocess_subtile(parameters_dict):
                 )
                 task.compute(retries=10)
 
-                # fill nulls by interpolating
-                ds = fill_nulls(ds).chunk(chunks_dict)
-                ds = prep_ds_for_writing(ds, chuck_dict=template_chunk_dict)
-                # writing AGB with na filled
-                task = ds.rename({'biomass': 'AGB_na_filled'})[['AGB_na_filled']].to_zarr(
-                    data_mapper,
-                    mode='a',
-                    region=region,
-                    compute=False,
-                )
-                task.compute(retries=10)
+                # # fill nulls by interpolating
+                # ds = fill_nulls(ds).chunk(chunks_dict)
+                # ds = prep_ds_for_writing(ds, chuck_dict=template_chunk_dict)
+                # # writing AGB with na filled
+                # task = ds.rename({'biomass': 'AGB_na_filled'})[['AGB_na_filled']].to_zarr(
+                #     data_mapper,
+                #     mode='a',
+                #     region=region,
+                #     compute=False,
+                # )
+                # task.compute(retries=10)
                 print(f'done {datetime.now()}')
         write_to_log('done', log_path, access_key_id, secret_access_key)
 
