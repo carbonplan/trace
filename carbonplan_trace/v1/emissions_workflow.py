@@ -14,15 +14,16 @@ from carbonplan_trace.metadata import get_cf_global_attrs
 from carbonplan_trace.tiles import tiles
 from carbonplan_trace.utils import zarr_is_complete
 from carbonplan_trace.v0.core import coarsen_emissions
+from carbonplan_trace.v1 import load, utils
 
-from ..constants import EMISSIONS_FACTORS, SQM_PER_HA, TC02_PER_TC, TC_PER_TBM, R
+from ..constants import EMISSIONS_FACTORS, TC02_PER_TC, TC_PER_TBM
 
 skip_existing = True
-tile_template = "s3://carbonplan-climatetrace/v1/results/tiles/30m/{tile_id}_{kind}.zarr"
-coarse_tile_template = "s3://carbonplan-climatetrace/v1/tiles/3000m/{tile_id}_{kind}.zarr"
-coarse_full_template = "s3://carbonplan-climatetrace/v0.4/global/3000m/raster_{kind}.zarr"
+tile_template = "s3://carbonplan-climatetrace/v1.2/results/tiles/30m/{tile_id}_{kind}.zarr"
+coarse_tile_template = "s3://carbonplan-climatetrace/v1.2/tiles/3000m/{tile_id}_{kind}.zarr"
+coarse_full_template = "s3://carbonplan-climatetrace/v1.2/global/3000m/raster_{kind}.zarr"
 shapes_file = 's3://carbonplan-climatetrace/inputs/shapes/countries.shp'
-rollup_template = 's3://carbonplan-climatetrace/v0.4/country_rollups_{var}.csv'
+rollup_template = 's3://carbonplan-climatetrace/v1.2/country_rollups_{var}.csv'
 chunks = {"lat": 4000, "lon": 4000, "year": 2}
 coarse_chunks = {"lat": 400, "lon": 400, "year": -1}
 years = (2001, 2020)
@@ -53,7 +54,7 @@ def open_fire_mask(tile_id, resolution=30, y0=2014, y1=2020):
 
 
 def calc_biomass_change(ds):
-    ds = ds.rename({'time': 'year'}).assign_coords({'year': np.arange(2014,2021)})
+    ds = ds.rename({'time': 'year'}).assign_coords({'year': np.arange(2014, 2021)})
     # diff by one year, dropping the first year since it will be all nulls
     return (ds.shift(year=1) - ds).isel(year=slice(1, None))
 
@@ -68,39 +69,42 @@ def convert_to_emissions(ds):
 
 def fire_emissions_factor_conversion(ds):
     # load tropics mask (different emisisons factor)
-    ds = load.tropics(ds)
+    # just select one slice to make it 2d template
+    print(ds)
+    ds = load.tropics(ds, template_var='sinks')
 
-    min_lat = data.y.min().values
-    max_lat = data.y.max().values
-    min_lon = data.x.min().values
-    max_lon = data.x.max().values
+    min_lat = ds.y.min().values
+    max_lat = ds.y.max().values
+    min_lon = ds.x.min().values
+    max_lon = ds.x.max().values
 
     lat_lon_box = min_lat, max_lat, min_lon, max_lon
     # load forest type mask
+
     igbp = utils.open_global_igbp_data(lat_lon_box=lat_lon_box)
-
     savanna_mask = igbp.igbp.isin([8, 9]).astype('int')
-
     for year in [2019, 2020]:
-        new_savanna_mask = savanna_mask.sel(year=2018).assign_coords({'year': [year]})
+        new_savanna_mask = savanna_mask.sel(year=2018).assign_coords({'year': year})
         savanna_mask = xr.concat([savanna_mask, new_savanna_mask], dim='year')
-
+    savanna_mask = savanna_mask.to_dataset()
+    print(ds)
     ds['is_savanna'] = utils.find_matching_records(
-        data=savanna_mask, lats=ds.y, lons=ds.x, year=ds.time
-    )
+        data=savanna_mask, lats=ds.y, lons=ds.x, years=ds.year
+    )['igbp']
 
-    ds['savanna_fires'] = ds['emissions_from_fires'].where(ds['is_savanna'] == 1)
+    ds['savanna_fire'] = ds['emissions_from_fire'].where(ds['is_savanna'] == 1)
     # subtract out savanna fires
-    ds['emissions_from_fires'] = ds['emissions_from_fires'] - ds['savanna_fires']
+    ds['emissions_from_fire'] = ds['emissions_from_fire'] - ds['savanna_fire']
 
-    ds['tropical_forest_fires'] = ds['emissions_from_fires'].where(
-        ds['is_tropics'] == 1 & ds['is_savanna'] == 0
+    ds['tropical_forest_fire'] = ds['emissions_from_fire'].where(
+        (ds['is_tropics'] == 1) & (ds['is_savanna'] == 0)
     )
 
     # subtract out tropical forest fires
-    ds['extratropical_forest_fires'] = ds['emissions_from_fires'] - ds['tropical_forest_fires']
-
-    del ds['emissions_from_fires']
+    ds['extratropical_forest_fire'] = ds['emissions_from_fire'] - ds['tropical_forest_fire']
+    del ds['is_tropics']
+    del ds['is_savanna']
+    # del ds['emissions_from_fire']
 
     for (fire_type, emissions_factor) in EMISSIONS_FACTORS.items():
         ds[fire_type] = ds[fire_type] * emissions_factor
@@ -136,14 +140,15 @@ def process_one_tile(tile_id):
     # calc emissions
     if not (skip_existing and zarr_is_complete(tot_mapper) and zarr_is_complete(split_mapper)):
 
-        # read data 
+        # read data
         fire_da = open_fire_mask(tile_id).fillna(0)
         carbon_pools = xr.open_zarr(f's3://carbonplan-climatetrace/v1/results/tiles/{tile_id}.zarr')
-        
-        # calculate fluxes         
-        flux = calc_biomass_change(ds=carbon_pools)
+
+        # calculate fluxes
+        flux = calc_biomass_change(ds=carbon_pools).compute()
         sources = flux.clip(min=0)
         sinks = flux.clip(max=0)
+        del flux
         # write total emissions
 
         # split out emissions from fire/clearing
@@ -153,22 +158,33 @@ def process_one_tile(tile_id):
         # are marked as emissions from fire. this is consistent with the methods in Harris et al 2021.
         # note that we are limited by the start of the dataset and will miss the fires from years[0] - 1
         fire_attribution = (fire_da + fire_da.shift(year=1, fill_value=0)).astype(bool)
+        # reassign coords to ensure they match
+        fire_attribution = fire_attribution.reindex(lat=list(reversed(fire_attribution.lat)))
+        sources['lat'] = fire_attribution.lat
+        sources['lon'] = fire_attribution.lon
+        # the align statement should just restrict to the overlapping time dimension since we've
+        # already aligned lat/lon above
+        print(sources)
         sources, fire_attribution = xr.align(sources, fire_attribution, join='inner')
-
-        # this needs to be changed because sources is a dataset with four data arrays (AGB, BGB, deadwood, litter)
-        # we can't assign it to be a dataarray in the out dataset 
-        out['emissions_from_fire'] = sources.where(fire_attribution, other=0)
-        out['emissions_from_clearing'] = sources - out['emissions_from_fire']
-        out['sinks'] = sinks
+        print(sources)
+        # # this needs to be changed because sources is a dataset with four data arrays (AGB, BGB, deadwood, litter)
+        # # we can't assign it to be a dataarray in the out dataset
+        # # include different carbon pools per Table S5 in Harris et al. (2020)
+        out['emissions_from_fire'] = (sources['AGB'] + sources['BGB']).where(
+            fire_attribution, other=0
+        )
+        out['emissions_from_clearing'] = (
+            sources['AGB'] + sources['BGB'] + sources['dead_wood'] + sources['litter']
+        ) - out['emissions_from_fire']
+        out['sinks'] = sinks['AGB'] + sinks['BGB'] + sinks['dead_wood'] + sinks['litter']
+        out = out.rename({'lat': 'y', 'lon': 'x'})
+        print(out)
         out = convert_to_emissions(out)
-
         out.attrs.update(get_cf_global_attrs())
-
+        out = out.chunk({'year': -1, 'x': 4000, 'y': 4000})
         # TODO: add metadata to emissions variable
+        print(out)
         out.to_zarr(split_mapper, encoding=split_encoding, mode="w", consolidated=True)
-
-        sources.attrs.update(get_cf_global_attrs())
-        sources.to_zarr(tot_mapper, encoding=tot_encoding, mode="w", consolidated=True)
 
         return_status = 'emissions-done'
 
@@ -191,7 +207,7 @@ def process_one_tile(tile_id):
             coarse_out.to_zarr(out_mapper, encoding=encoding, mode="w", consolidated=True)
             return_status = 'coarsen-done'
 
-    return (return_status,)
+    return (return_status, out)
 
 
 def combine_all_tiles():
@@ -271,7 +287,7 @@ def main():
         print(client)
         print(client.dashboard_link)
 
-        for tile in tiles:
+        for tile in tiles[0:]:
             result = process_one_tile(tile)
             if result[0] != 'skipped':
                 client.restart()

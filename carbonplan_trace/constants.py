@@ -3,7 +3,7 @@ TC_PER_TBM = 0.5
 SQM_PER_HA = 10000
 R = 6.371e6
 EMISSIONS_FACTORS = {
-    'savanna_fires': 1.613,
-    'tropical_forest_fires': 1.580,
-    'extratropical_forest_fires': 1.569,
+    'savanna_fire': 1.613,
+    'tropical_forest_fire': 1.580,
+    'extratropical_forest_fire': 1.569,
 }

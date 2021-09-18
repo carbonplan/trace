@@ -202,14 +202,20 @@ def training(realm, y0=2003, y1=2010, reload=False, access_key_id=None, secret_a
         return output
 
 
-def tropics(ds, chunks_dict=None):
+def tropics(ds, template_var, chunks_dict=None):
     """
     tropics is either 1 or 0 (not boolean)
     """
     fp = "s3://carbonplan-climatetrace/inputs/shapes/tropics.shp"
     tropics = gpd.read_file(fp)
+    # mask will be of same shape as `lon_or_obj` so only pass a 2d version
+    # here since we only need 2d
     output_da = regionmask.mask_geopandas(
-        tropics, numbers='is_tropica', lon_or_obj=ds, lon_name='x', lat_name='y'
+        tropics,
+        numbers='is_tropica',
+        lon_or_obj=ds[template_var].isel(year=0).drop('year'),
+        lon_name='x',
+        lat_name='y',
     )
     if chunks_dict is not None:
         ds['is_tropics'] = output_da.chunk(chunks_dict)
