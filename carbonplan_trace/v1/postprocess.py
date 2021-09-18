@@ -227,13 +227,13 @@ def calculate_belowground_biomass(ds):
     2. calculate bgb from agb based on power law relationship published by Mokany et al (2006) Eq 1
     "Critical analysis of root: Shoot ratios in terrestrial biomes"
     """
-    ds = ds.rename({'biomass': 'AGB'})
+    print(f'calculating belowground biomass {datetime.now()}')
     ds['BGB'] = 0.489 * (ds.AGB ** 0.890)
 
     return ds.astype('float32')
 
 
-def calculate_dead_wood_and_litter(ds, tiles, chunks_dict, lat_lon_box=None):
+def calculate_dead_wood_and_litter(ds, tiles, chunks_dict=None, lat_lon_box=None):
     """
     1. load FAO ecozone (converted into tropics/not tropics shapefile), elevation, and precipitation
     2. for each pixel, figure out the dead wood and litter fraction based on "
@@ -241,28 +241,23 @@ def calculate_dead_wood_and_litter(ds, tiles, chunks_dict, lat_lon_box=None):
     https://cdm.unfccc.int/methodologies/ARmethodologies/tools/ ar-am-tool-12-v3.0.pdf"
     3. calculate dead wood and litter
     """
+    print(f'loading tropics {datetime.now()}')
     ds = load.tropics(ds, chunks_dict=chunks_dict)
-    ds = load.aster(ds, tiles, lat_lon_box=lat_lon_box)  # chunks_dict=chunks_dict,
+    print(f'loading aster {datetime.now()}')
+    ds = load.aster(ds, tiles, lat_lon_box=lat_lon_box)
+    print(f'loading worldclim {datetime.now()}')
     ds = load.worldclim(ds, chunks_dict=chunks_dict)
-    # ds = ds.chunk(chunks_dict)
-    dead_wood = (
-        xr.DataArray(
-            0,
-            dims=['y', 'x', 'time'],
-            coords=[ds.coords['y'], ds.coords['x'], ds.coords['time']],
-        )
-        .astype('float32')
-        .chunk(chunks_dict)
-    )
-    litter = (
-        xr.DataArray(
-            0,
-            dims=['y', 'x', 'time'],
-            coords=[ds.coords['y'], ds.coords['x'], ds.coords['time']],
-        )
-        .astype('float32')
-        .chunk(chunks_dict)
-    )
+    print(f'calculating dead wood and litter {datetime.now()}')
+    dead_wood = xr.DataArray(
+        0,
+        dims=['y', 'x', 'time'],
+        coords=[ds.coords['y'], ds.coords['x'], ds.coords['time']],
+    ).astype('float32')
+    litter = xr.DataArray(
+        0,
+        dims=['y', 'x', 'time'],
+        coords=[ds.coords['y'], ds.coords['x'], ds.coords['time']],
+    ).astype('float32')
 
     # tropic, elevation < 2000m, precip < 1000mm
     dead_wood = xr.where(
@@ -306,7 +301,7 @@ def calculate_dead_wood_and_litter(ds, tiles, chunks_dict, lat_lon_box=None):
     return ds
 
 
-def calc_carbon_pools(data, chunks_dict):
+def calc_carbon_pools(data, chunks_dict=None):
     """
     input = 3D merged result with lat, lon, year and biomass being the only data variable
     output = input data with more data variables for other carbon pools, with nulls filled and masked with forest land cover
@@ -319,8 +314,6 @@ def calc_carbon_pools(data, chunks_dict):
     # get lat lon tags
     tiles = utils.find_tiles_for_bounding_box(min_lat, max_lat, min_lon, max_lon)
 
-    # data = fill_nulls(data).chunk(chunks_dict)
-    # data = apply_forest_mask(data, lat_lon_box=lat_lon_box, chunks_dict=chunks_dict)
     data = calculate_belowground_biomass(data)
     data = calculate_dead_wood_and_litter(
         data, tiles, chunks_dict=chunks_dict, lat_lon_box=lat_lon_box
@@ -404,18 +397,6 @@ def postprocess_subtile(parameters_dict):
                     compute=False,
                 )
                 task.compute(retries=10)
-
-                # # fill nulls by interpolating
-                # ds = fill_nulls(ds).chunk(chunks_dict)
-                # ds = prep_ds_for_writing(ds, chuck_dict=template_chunk_dict)
-                # # writing AGB with na filled
-                # task = ds.rename({'biomass': 'AGB_na_filled'})[['AGB_na_filled']].to_zarr(
-                #     data_mapper,
-                #     mode='a',
-                #     region=region,
-                #     compute=False,
-                # )
-                # task.compute(retries=10)
                 print(f'done {datetime.now()}')
         write_to_log('done', log_path, access_key_id, secret_access_key)
 
