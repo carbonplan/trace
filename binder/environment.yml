@@ -3,13 +3,68 @@ channels:
   - conda-forge
 dependencies:
   - pangeo-notebook
-  - matplotlib
-  - intake
-  - intake-xarray
-  - rasterio
-  - xarray
-  - zarr
+  - awswrangler
+  - boto3
+  - bottleneck
+  - cartopy
+  - code-server
+  - cython
+  - datashader
+  - fastparquet
   - gcsfs
+  - gdal
+  - geopandas
+  - h5py
+  - h5netcdf
+  - holoviews
+  - intake
+  - intake-geopandas
+  - intake-parquet
+  - intake-xarray
+  - ipykernel
+  - ipython
+  - ipytree
+  - ipywidgets
+  - jedi
+  - jupyterlab
+  - jupyter-server-proxy
+  - jupyter-vscode-proxy
+  - libgdal
   - matplotlib
+  - nb_conda_kernels
+  - nodejs
+  - numba
+  - numcodecs
+  - numpy
+  - oauth2client
+  - pandas
+  - pre_commit
+  - prefect
+  - pykdtree
+  - pygeos
+  - pygraphviz
+  - pyproj
+  - pytest
+  - python-graphviz
+  - python-wget
+  - rasterio
+  - regionmask
+  - rio-cogeo
   - rioxarray
+  - s3fs
+  - scikit-learn
+  - scipy
   - seaborn
+  - tenacity
+  - tqdm
+  - utm
+  - watermark
+  - xarray
+  - xgboost
+  - zarr
+  - pip
+  - pip:
+      - carbonplan
+      - carbonplan-data
+      - carbonplan-styles>=0.4.1
+      - carbonplan-trace
