@@ -220,7 +220,6 @@ def run_change_point_detection_for_subtile(parameters_dict):
     tile_degree_size = parameters_dict['TILE_DEGREE_SIZE']
     data_path = parameters_dict['DATA_PATH']
     log_bucket = parameters_dict['LOG_BUCKET']
-    changepoint_log_bucket = parameters_dict.get('CHANGEPOINT_LOG_BUCKET')
     access_key_id = parameters_dict['ACCESS_KEY_ID']
     secret_access_key = parameters_dict['SECRET_ACCESS_KEY']
 
@@ -237,12 +236,7 @@ def run_change_point_detection_for_subtile(parameters_dict):
 
     aws_session = AWSSession(core_session, requester_pays=True)
     log_path = f'{log_bucket}{min_lat}_{min_lon}_{lat_increment}_{lon_increment}.txt'
-    if changepoint_log_bucket is not None:
-        changepoint_log_path = (
-            f'{changepoint_log_bucket}{min_lat}_{min_lon}_{lat_increment}_{lon_increment}.txt'
-        )
-    else:
-        changepoint_log_path = ''
+
     # we initialize the fs here to ensure that the worker has the correct permissions
     # in order to write
     fs = fsspec.get_filesystem_class('s3')(key=access_key_id, secret=secret_access_key)
@@ -265,43 +259,39 @@ def run_change_point_detection_for_subtile(parameters_dict):
                     'time': slice(0, year1 - year0),
                 }
                 time_coords = {'time': pd.date_range(str(year0), str(year1), freq='A')}
-                if (changepoint_log_bucket is None) or (not fs.exists(changepoint_log_path)):
-                    print(f'filling nulls {datetime.now()}')
-                    # fill nulls by interpolating
-                    ds = ds.assign_coords({'time': np.arange(year0, year1)})
-                    ds = postprocess.fill_nulls(ds[['AGB_raw']].rename({'AGB_raw': 'biomass'}))
-                    ds = postprocess.prep_ds_for_writing(
-                        ds, coords_dict=time_coords, chuck_dict=template_chunk_dict
-                    )
-                    # writing AGB with na filled
-                    task = ds.rename({'biomass': 'AGB_na_filled'})[['AGB_na_filled']].to_zarr(
-                        data_mapper,
-                        mode='a',
-                        region=region,
-                        compute=False,
-                    )
-                    task.compute(retries=10)
+                print(f'filling nulls {datetime.now()}')
+                # fill nulls by interpolating
+                ds = ds.assign_coords({'time': np.arange(year0, year1)})
+                ds = postprocess.fill_nulls(ds[['AGB_raw']].rename({'AGB_raw': 'biomass'}))
+                ds = postprocess.prep_ds_for_writing(
+                    ds, coords_dict=time_coords, chuck_dict=template_chunk_dict
+                )
+                # writing AGB with na filled
+                task = ds.rename({'biomass': 'AGB_na_filled'})[['AGB_na_filled']].to_zarr(
+                    data_mapper,
+                    mode='a',
+                    region=region,
+                    compute=False,
+                )
+                task.compute(retries=10)
 
-                    print(f'change point detection {datetime.now()}')
-                    smoothed, pvalue, breakpoint = perform_change_detection(ds.biomass)
-                    ds['AGB'] = smoothed
-                    ds['pvalue'] = pvalue
-                    ds['breakpoint'] = breakpoint
+                print(f'change point detection {datetime.now()}')
+                smoothed, pvalue, breakpoint = perform_change_detection(ds.biomass)
+                ds['AGB'] = smoothed
+                ds['pvalue'] = pvalue
+                ds['breakpoint'] = breakpoint
 
-                    ds = postprocess.prep_ds_for_writing(
-                        ds, coords_dict=time_coords, chuck_dict=template_chunk_dict
-                    )
-                    # writing change point detection data
-                    task = ds[['AGB', 'pvalue', 'breakpoint']].to_zarr(
-                        data_mapper,
-                        mode='a',
-                        region=region,
-                        compute=False,
-                    )
-                    task.compute(retries=10)
-                    postprocess.write_to_log(
-                        'done', changepoint_log_path, access_key_id, secret_access_key
-                    )
+                ds = postprocess.prep_ds_for_writing(
+                    ds, coords_dict=time_coords, chuck_dict=template_chunk_dict
+                )
+                # writing change point detection data
+                task = ds[['AGB', 'pvalue', 'breakpoint']].to_zarr(
+                    data_mapper,
+                    mode='a',
+                    region=region,
+                    compute=False,
+                )
+                task.compute(retries=10)
 
                 # calculate carbon pools
                 print(f'calculating carbon pools {datetime.now()}')
