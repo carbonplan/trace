@@ -13,7 +13,6 @@ from dask.distributed import Client
 from carbonplan_trace.metadata import get_cf_global_attrs
 from carbonplan_trace.tiles import tiles
 from carbonplan_trace.utils import zarr_is_complete
-from carbonplan_trace.v0.core import coarsen_emissions
 from carbonplan_trace.v1 import load, utils
 
 from ..constants import EMISSIONS_FACTORS, TC02_PER_TC, TC_PER_TBM
@@ -102,13 +101,16 @@ def fire_emissions_factor_conversion(ds):
 
     # subtract out tropical forest fires
     ds['extratropical_forest_fire'] = ds['emissions_from_fire'] - ds['tropical_forest_fire']
-    del ds['is_tropics']
-    del ds['is_savanna']
-    # del ds['emissions_from_fire']
 
     for (fire_type, emissions_factor) in EMISSIONS_FACTORS.items():
         ds[fire_type] = ds[fire_type] * emissions_factor
-
+    ds['emissions_from_fire'] = (
+        ds['tropical_forest_fire'] + ds['extratropical_forest_fire'] + ds['savanna_fire']
+    )
+    del ds['tropical_forest_fire']
+    del ds['extratropical_forest_fire']
+    del ds['savanna_fire']
+    print('deleted the fires!')
     return ds
 
 
@@ -132,23 +134,21 @@ def process_one_tile(tile_id):
     # mappers
     tot_mapper = fsspec.get_mapper(tile_template.format(tile_id=tile_id, kind='tot'))
     split_mapper = fsspec.get_mapper(tile_template.format(tile_id=tile_id, kind='split'))
-    coarse_tot_mapper = fsspec.get_mapper(coarse_tile_template.format(tile_id=tile_id, kind='tot'))
-    coarse_split_mapper = fsspec.get_mapper(
-        coarse_tile_template.format(tile_id=tile_id, kind='split')
-    )
 
     # calc emissions
     if not (skip_existing and zarr_is_complete(tot_mapper) and zarr_is_complete(split_mapper)):
 
         # read data
         fire_da = open_fire_mask(tile_id).fillna(0)
-        carbon_pools = xr.open_zarr(f's3://carbonplan-climatetrace/v1/results/tiles/{tile_id}.zarr')
+        carbon_pools = xr.open_zarr(
+            f's3://carbonplan-climatetrace/v1.2/results/tiles/{tile_id}.zarr'
+        )
 
         # calculate fluxes
-        flux = calc_biomass_change(ds=carbon_pools).compute()
-        sources = flux.clip(min=0)
-        sinks = flux.clip(max=0)
-        del flux
+        flux = calc_biomass_change(ds=carbon_pools)
+        sources = flux.clip(min=0)  # .compute()
+        sinks = flux.clip(max=0)  # .compute()
+        # del flux
         # write total emissions
 
         # split out emissions from fire/clearing
@@ -160,13 +160,14 @@ def process_one_tile(tile_id):
         fire_attribution = (fire_da + fire_da.shift(year=1, fill_value=0)).astype(bool)
         # reassign coords to ensure they match
         fire_attribution = fire_attribution.reindex(lat=list(reversed(fire_attribution.lat)))
+        # create inverse fire mask
+        clearing_attribution = (1 - fire_attribution.astype(int)).astype(bool)
         sources['lat'] = fire_attribution.lat
         sources['lon'] = fire_attribution.lon
         # the align statement should just restrict to the overlapping time dimension since we've
         # already aligned lat/lon above
-        print(sources)
         sources, fire_attribution = xr.align(sources, fire_attribution, join='inner')
-        print(sources)
+        sources, clearing_attribution = xr.align(sources, clearing_attribution, join='inner')
         # # this needs to be changed because sources is a dataset with four data arrays (AGB, BGB, deadwood, litter)
         # # we can't assign it to be a dataarray in the out dataset
         # # include different carbon pools per Table S5 in Harris et al. (2020)
@@ -175,39 +176,20 @@ def process_one_tile(tile_id):
         )
         out['emissions_from_clearing'] = (
             sources['AGB'] + sources['BGB'] + sources['dead_wood'] + sources['litter']
-        ) - out['emissions_from_fire']
+        ).where(clearing_attribution, other=0)
         out['sinks'] = sinks['AGB'] + sinks['BGB'] + sinks['dead_wood'] + sinks['litter']
         out = out.rename({'lat': 'y', 'lon': 'x'})
-        print(out)
-        out = convert_to_emissions(out)
+        out = convert_to_emissions(out).compute()
+        del out['is_tropics']
+        del out['is_savanna']
         out.attrs.update(get_cf_global_attrs())
         out = out.chunk({'year': -1, 'x': 4000, 'y': 4000})
         # TODO: add metadata to emissions variable
-        print(out)
         out.to_zarr(split_mapper, encoding=split_encoding, mode="w", consolidated=True)
 
         return_status = 'emissions-done'
 
-    # coarsen emissions
-    for in_mapper, out_mapper, encoding in [
-        (tot_mapper, coarse_tot_mapper, tot_encoding),
-        (split_mapper, coarse_split_mapper, split_encoding),
-    ]:
-
-        if not (skip_existing and zarr_is_complete(out_mapper)):
-            ds = xr.open_zarr(in_mapper, consolidated=True)
-
-            mask_var = list(encoding.keys())[0]
-            coarse_out = coarsen_emissions(ds, factor=COARSENING_FACTOR, mask_var=mask_var).chunk(
-                coarse_chunks
-            )
-            coarse_out.attrs.update(get_cf_global_attrs())
-
-            out_mapper.clear()
-            coarse_out.to_zarr(out_mapper, encoding=encoding, mode="w", consolidated=True)
-            return_status = 'coarsen-done'
-
-    return (return_status, out)
+    return return_status
 
 
 def combine_all_tiles():
