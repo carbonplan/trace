@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 
 import boto3
 import dask
@@ -12,7 +13,6 @@ from rasterio.session import AWSSession
 from s3fs import S3FileSystem
 
 from carbonplan_trace.v0.data import cat
-from carbonplan_trace.v1.change_point_detection import perform_change_detection
 
 fs = S3FileSystem(requester_pays=True)
 
@@ -76,6 +76,7 @@ def turn_point_cloud_to_grid(df, ul_lat, ul_lon, tile_degree_size):
     ).round(6)
     assert len(lats) == 8000
     assert len(lons) == 8000
+
     df = df.groupby(['x', 'y']).mean().reset_index()
     pivot = df.pivot(columns="x", index="y", values="biomass")
     del df
@@ -98,9 +99,12 @@ def trim_ds(ul_lat, ul_lon, tile_degree_size, ds):
 
 
 def merge_all_scenes_in_tile(ul_lat, ul_lon, year, tile_degree_size=2):
+    print(f'compiling {datetime.now()}')
     df = compile_df_for_tile(ul_lat, ul_lon, year)
+    print(f'gridding {datetime.now()}')
     ds = turn_point_cloud_to_grid(df, ul_lat, ul_lon, tile_degree_size)
     del df
+    print(f'trimming {datetime.now()}')
     ds = trim_ds(ul_lat, ul_lon, tile_degree_size, ds)
     return ds
 
@@ -108,10 +112,13 @@ def merge_all_scenes_in_tile(ul_lat, ul_lon, year, tile_degree_size=2):
 def biomass_tile_timeseries(ul_lat, ul_lon, year0, year1, tile_degree_size=2):
     ds_list = []
     for year in np.arange(year0, year1):
+        print(year)
         ds_list.append(
             merge_all_scenes_in_tile(ul_lat, ul_lon, year, tile_degree_size=tile_degree_size)
         )
     biomass_timeseries = xr.concat(ds_list, dim='time')
+
+    del ds_list
 
     biomass_timeseries = biomass_timeseries.assign_coords(
         # {'time': pd.date_range(str(year0), str(year1), freq='A')}
@@ -121,7 +128,7 @@ def biomass_tile_timeseries(ul_lat, ul_lon, year0, year1, tile_degree_size=2):
 
 
 def initialize_empty_dataset(ul_lat_tag, ul_lon_tag, year0, year1, write_tile_metadata=True):
-    path = 's3://carbonplan-climatetrace/v1.1/results/tiles/{}_{}.zarr'.format(
+    path = 's3://carbonplan-climatetrace/v1.2/results/tiles/{}_{}.zarr'.format(
         ul_lat_tag, ul_lon_tag
     )
     # if zarr already exists then just return the path and don't touch it since
@@ -148,12 +155,13 @@ def initialize_empty_dataset(ul_lat_tag, ul_lon_tag, year0, year1, write_tile_me
         timeseries = timeseries.assign_coords(
             {'time': pd.date_range(str(year0), str(year1), freq='A')}
         )
-        # ds = timeseries.to_dataset(name='AGB')
-        # for variable in ['BGB', 'dead_wood', 'litter']:
-        #     ds[variable] = ds['AGB']
         ds = timeseries.to_dataset(name='AGB')
-        for variable in ['AGB_raw', 'pvalue', 'breakpoint']:
+        # variables with time dimension
+        for variable in ['AGB_raw', 'AGB_na_filled', 'BGB', 'dead_wood', 'litter']:
             ds[variable] = ds['AGB']
+        # variables without time dimension
+        for variable in ['pvalue', 'breakpoint']:
+            ds[variable] = ds['AGB'].isel(time=slice(0, 1)).squeeze('time', drop=True)
 
         mapper = fsspec.get_mapper(path)
         if write_tile_metadata:
@@ -171,24 +179,27 @@ def fill_nulls(ds):
     """
     min_biomass = ds.biomass.min().values
     max_biomass = ds.biomass.max().values
-    with dask.config.set(scheduler="threads"):
-        ds = ds.interpolate_na(dim='time', method='linear', max_gap=6)  # , bounds_error=False)
-    # now we'll add a try except to handle the corner case of a single pixel in a row
-    # or column that can't be interpolated. by using a try/except we won't interpolate
-    # and instead we will add a 1 pixel buffer around every boundary and then
-    # try extrapolating again. note that this will dampen any extrapolation
-    # slightly for 2x2 cells in which this try/except was triggered
-    try:
-        ds = ds.interpolate_na(dim='x', method='linear', fill_value="extrapolate")
-    except ValueError:
-        ds = ds.bfill(dim='x', limit=1).ffill(dim='x', limit=1)
-        ds = ds.interpolate_na(dim='x', method='linear', fill_value="extrapolate")
-    try:
-        ds = ds.interpolate_na(dim='y', method='linear', fill_value="extrapolate")
-    except ValueError:
-        ds = ds.bfill(dim='y', limit=1).ffill(dim='y', limit=1)
-        ds = ds.interpolate_na(dim='y', method='linear', fill_value="extrapolate")
 
+    # note that we handle the corner case of having just a single valid number in a time slice/row/column,
+    # which fails interpolation/extrapolation.
+    # we do this by identifying these pixels then adding a 1 pixel buffer before doing the interpolation
+    # note that this will dampen any extrapolation
+    print('loading')
+    ds = ds.load()
+    # with dask.config.set(scheduler="threaded"):
+    print('interpolating on time')
+    one_value = ds.notnull().sum(dim='time') == 1
+    filled = ds.bfill(dim='time', limit=1).ffill(dim='time', limit=1)
+    ds = xr.where(one_value, filled, ds)
+    # use max gap of 6 in this time series of 7 points to avoid error in all null pixels
+    ds = ds.interpolate_na(dim='time', method='linear', max_gap=6, fill_value="extrapolate")
+
+    print('interpolating on lat/lon')
+    for dim in ['lon', 'lat']:
+        one_value = ds.notnull().sum(dim=dim) == 1
+        filled = ds.bfill(dim=dim, limit=1).ffill(dim=dim, limit=1)
+        ds = xr.where(one_value, filled, ds)
+        ds = ds.interpolate_na(dim=dim, method='linear', fill_value="extrapolate")
     ds['biomass'] = ds.biomass.clip(min=min_biomass, max=max_biomass)
 
     return ds
@@ -295,25 +306,25 @@ def calculate_dead_wood_and_litter(ds, tiles, chunks_dict, lat_lon_box=None):
     return ds
 
 
-def fillna_mask_and_calc_carbon_pools(data, chunks_dict):
+def calc_carbon_pools(data, chunks_dict):
     """
     input = 3D merged result with lat, lon, year and biomass being the only data variable
     output = input data with more data variables for other carbon pools, with nulls filled and masked with forest land cover
     """
-    # min_lat = data.y.min().values
-    # max_lat = data.y.max().values
-    # min_lon = data.x.min().values
-    # max_lon = data.x.max().values
-    # lat_lon_box = min_lat, max_lat, min_lon, max_lon
-    # # get lat lon tags
-    # tiles = utils.find_tiles_for_bounding_box(min_lat, max_lat, min_lon, max_lon)
+    min_lat = data.y.min().values
+    max_lat = data.y.max().values
+    min_lon = data.x.min().values
+    max_lon = data.x.max().values
+    lat_lon_box = min_lat, max_lat, min_lon, max_lon
+    # get lat lon tags
+    tiles = utils.find_tiles_for_bounding_box(min_lat, max_lat, min_lon, max_lon)
 
-    data = fill_nulls(data.load()).chunk(chunks_dict)
+    # data = fill_nulls(data).chunk(chunks_dict)
     # data = apply_forest_mask(data, lat_lon_box=lat_lon_box, chunks_dict=chunks_dict)
-    # data = calculate_belowground_biomass(data)
-    # data = calculate_dead_wood_and_litter(
-    #     data, tiles, chunks_dict=chunks_dict, lat_lon_box=lat_lon_box
-    # )
+    data = calculate_belowground_biomass(data)
+    data = calculate_dead_wood_and_litter(
+        data, tiles, chunks_dict=chunks_dict, lat_lon_box=lat_lon_box
+    )
     data = data.rename({'x': 'lon', 'y': 'lat'})
     data = data.transpose('time', 'lat', 'lon')
     return data.astype('float32')
@@ -323,6 +334,18 @@ def write_to_log(string, log_path, access_key_id, secret_access_key):
     fs = fsspec.get_filesystem_class('s3')(key=access_key_id, secret=secret_access_key)
     with fs.open(log_path, 'w') as f:
         f.write(string)
+
+
+def prep_ds_for_writing(ds, coords_dict=None, chuck_dict=None):
+    if chuck_dict is not None:
+        ds = ds.chunk(chuck_dict)
+    if coords_dict is not None:
+        ds = ds.assign_coords(coords_dict)
+    ds = ds.transpose('time', 'lat', 'lon')
+    for v in ds.data_vars:
+        if 'chunks' in ds[v].encoding:
+            del ds[v].encoding['chunks']
+    return ds.compute()
 
 
 def postprocess_subtile(parameters_dict):
@@ -336,7 +359,7 @@ def postprocess_subtile(parameters_dict):
     data_path = parameters_dict['DATA_PATH']
     access_key_id = parameters_dict['ACCESS_KEY_ID']
     secret_access_key = parameters_dict['SECRET_ACCESS_KEY']
-    chunks_dict = parameters_dict['CHUNKS_DICT']
+    # chunks_dict = parameters_dict['CHUNKS_DICT']
 
     subtile_ul_lat = min_lat + lat_increment + tile_degree_size
     subtile_ul_lon = min_lon + lon_increment
@@ -345,58 +368,55 @@ def postprocess_subtile(parameters_dict):
         aws_secret_access_key=secret_access_key,
         region_name='us-west-2',
     )
+    template_chunk_dict = {'lat': 4000, 'lon': 4000, 'time': 1}
 
     _set_thread_settings()
 
     aws_session = AWSSession(core_session, requester_pays=True)
-    log_path = f's3://carbonplan-climatetrace/v1/postprocess_log/{min_lat}_{min_lon}_{lat_increment}_{lon_increment}.txt'
+    log_path = f's3://carbonplan-climatetrace/v1.2/postprocess_log/{min_lat}_{min_lon}_{lat_increment}_{lon_increment}.txt'
     # we initialize the fs here to ensure that the worker has the correct permissions
     # in order to write
     fs = fsspec.get_filesystem_class('s3')(key=access_key_id, secret=secret_access_key)
     data_mapper = fs.get_mapper(data_path)
 
+    # print(f'building time series {datetime.now()}')
     ds = biomass_tile_timeseries(
         subtile_ul_lat, subtile_ul_lon, year0, year1, tile_degree_size=tile_degree_size
     )
     if ds.biomass.notnull().sum().values == 0:
         write_to_log('empty scene', log_path, access_key_id, secret_access_key)
+
     else:
         with rio.Env(aws_session):
             with dask.config.set(scheduler='single-threaded'):
-
-                # add all other postprocessing
-                ds = fillna_mask_and_calc_carbon_pools(ds, chunks_dict=chunks_dict)
-                # do the interpolation
-                smoothed, pvalue, breakpoint = perform_change_detection(ds.biomass)
-                ds = ds.rename({'biomass': 'AGB_raw'})
-                ds['AGB'] = smoothed
-                ds['pvalue'] = pvalue
-                ds['breakpoint'] = breakpoint
-                # add the timestamps back in to conform with template
-                ds = ds.assign_coords(
-                    {'time': pd.date_range(str(year0), str(year1), freq='A')}
-                ).compute()
-                # rechunk aligning with the template file
-                ds = ds.chunk({'lat': 4000, 'lon': 4000, 'time': 1})
-                for v in ds.data_vars:
-                    if 'chunks' in ds[v].encoding:
-                        del ds[v].encoding['chunks']
-                task = ds.to_zarr(
+                region = {
+                    "lat": slice(lat_increment * 4000, (lat_increment + tile_degree_size) * 4000),
+                    'lon': slice(lon_increment * 4000, (lon_increment + tile_degree_size) * 4000),
+                    'time': slice(0, year1 - year0),
+                }
+                ds = ds.rename({'x': 'lon', 'y': 'lat'})
+                ds = prep_ds_for_writing(ds, chuck_dict=template_chunk_dict)
+                # writing raw data
+                task = ds.rename({'biomass': 'AGB_raw'})[['AGB_raw']].to_zarr(
                     data_mapper,
                     mode='a',
-                    region={
-                        "lat": slice(
-                            lat_increment * 4000, (lat_increment + tile_degree_size) * 4000
-                        ),
-                        'lon': slice(
-                            lon_increment * 4000, (lon_increment + tile_degree_size) * 4000
-                        ),
-                        'time': slice(0, year1 - year0),
-                    },
+                    region=region,
                     compute=False,
                 )
                 task.compute(retries=10)
 
+                # # fill nulls by interpolating
+                # ds = fill_nulls(ds).chunk(chunks_dict)
+                # ds = prep_ds_for_writing(ds, chuck_dict=template_chunk_dict)
+                # # writing AGB with na filled
+                # task = ds.rename({'biomass': 'AGB_na_filled'})[['AGB_na_filled']].to_zarr(
+                #     data_mapper,
+                #     mode='a',
+                #     region=region,
+                #     compute=False,
+                # )
+                # task.compute(retries=10)
+                print(f'done {datetime.now()}')
         write_to_log('done', log_path, access_key_id, secret_access_key)
 
 
