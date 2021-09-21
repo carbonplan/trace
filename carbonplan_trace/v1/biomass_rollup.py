@@ -1,7 +1,8 @@
 import dask
 import fsspec
+import geopandas
 import numcodecs
-import pandas as pd
+import regionmask
 import xarray as xr
 
 from carbonplan_trace.metadata import get_cf_global_attrs
@@ -17,17 +18,22 @@ def open_biomass_tile(tile_id, version, y0=2014, y1=2021):
     input_tile_fn = f"s3://carbonplan-climatetrace/{version}/results/tiles/{tile_id}.zarr"
     ds = xr.open_zarr(input_tile_fn)
 
-    # assign correct time coords
-    time_coords = {'time': pd.date_range(f'{y0}-07-01', f'{y1}-07-01', freq='A')}
-    ds = ds.assign_coords(time_coords)
-
-    # use igbp land cover for masking
+    # use igbp land cover as a land mask
     lat, lon = utils.get_lat_lon_tags_from_tile_path(tile_id)
     bounding_box = utils.parse_bounding_box_from_lat_lon_tags(lat, lon)
     igbp = utils.open_global_igbp_data(lat_lon_box=bounding_box)
     land_mask = (igbp.igbp > 0).any(dim='year')
-    ds['land_mask'] = utils.find_matching_records(data=land_mask, lats=ds.lat, lons=ds.lon)
-    ds = ds.where(ds.land_mask)
+    land_mask = utils.find_matching_records(data=land_mask, lats=ds.lat, lons=ds.lon)
+    ds = ds.where(land_mask)
+
+    # use landsat mask
+    landsat_shape = geopandas.read_file('s3://carbonplan-climatetrace/v1.2/masks/valid_landsat.shp')
+    landsat_shape['valid_landsat'] = 1
+    example = ds.isel(time=0)[['AGB']].drop('time')
+    landsat_mask = regionmask.mask_geopandas(
+        landsat_shape, numbers="valid_landsat", lon_or_obj=example.lon, lat=example.lat
+    )
+    ds = ds.where(landsat_mask == 1)
 
     return ds
 
@@ -89,7 +95,6 @@ def coarsen_biomass_one_tile(
     url : string
         Url where a processed tile is located
     """
-    print(tile_id)
     return_status = 'skipped'
 
     # mappers
@@ -109,12 +114,21 @@ def coarsen_biomass_one_tile(
         coarse_mapper.clear()
         encoding = {"compressor": numcodecs.Blosc()}
         print('writing')
-        coarse_out[variables].to_zarr(
-            coarse_mapper,
-            encoding={var: encoding for var in variables},
-            mode="w",
-            consolidated=True,
-        )
+        for i, var in enumerate(variables):
+            if i == 0:
+                coarse_out[[var]].to_zarr(
+                    coarse_mapper,
+                    encoding={var: encoding},
+                    mode="w",
+                    consolidated=True,
+                )
+            else:
+                coarse_out[[var]].to_zarr(
+                    coarse_mapper,
+                    encoding={var: encoding},
+                    mode="a",
+                    consolidated=True,
+                )
         return_status = 'coarsen-done'
 
     return (return_status,)
@@ -162,6 +176,8 @@ def combine_all_tiles(
             print(ds.nbytes / 1e9)
 
         encoding = {"compressor": numcodecs.Blosc()}
-        ds.to_zarr(mapper, encoding={var: encoding for var in variables}, consolidated=True)
+        ds.to_zarr(
+            mapper, encoding={var: encoding for var in variables}, mode='w', consolidated=True
+        )
 
     return 'done'
