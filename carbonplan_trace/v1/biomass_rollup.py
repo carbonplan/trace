@@ -27,7 +27,9 @@ def open_biomass_tile(tile_id, version, y0=2014, y1=2021):
     ds = ds.where(land_mask)
 
     # use landsat mask
-    landsat_shape = geopandas.read_file('s3://carbonplan-climatetrace/v1.2/masks/valid_landsat.shp')
+    landsat_shape = geopandas.read_file(
+        f's3://carbonplan-climatetrace/{version}/masks/valid_landsat.shp'
+    )
     landsat_shape['valid_landsat'] = 1
     example = ds.isel(time=0)[['AGB']].drop('time')
     landsat_mask = regionmask.mask_geopandas(
