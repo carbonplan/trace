@@ -209,17 +209,16 @@ def tropics(ds, template_var, chunks_dict=None):
     fp = "s3://carbonplan-climatetrace/inputs/shapes/tropics.shp"
     tropics = gpd.read_file(fp)
     # mask will be of same shape as `lon_or_obj` so only pass a 2d version
-    # here since we only need 2d
+    # here since we only need 2d (since tropics mask is time-invariant)
     output_da = regionmask.mask_geopandas(
         tropics,
         numbers='is_tropica',
+        method='rasterize',
         lon_or_obj=ds[template_var].isel(year=0).drop('year'),
         lon_name='x',
         lat_name='y',
     )
     if chunks_dict is not None:
-        ds['is_tropics'] = output_da.chunk(chunks_dict)
+        return output_da.chunk(chunks_dict)
     else:
-        ds['is_tropics'] = output_da
-
-    return ds
+        return output_da

@@ -29,6 +29,7 @@ years = (2001, 2020)
 COARSENING_FACTOR = 100
 tot_encoding = {"flux": {"compressor": numcodecs.Blosc()}}
 split_encoding = {
+    "sinks": {"compressor": numcodecs.Blosc()},
     "emissions_from_clearing": {"compressor": numcodecs.Blosc()},
     "emissions_from_fire": {"compressor": numcodecs.Blosc()},
 }
@@ -69,9 +70,7 @@ def convert_to_emissions(ds):
 def fire_emissions_factor_conversion(ds):
     # load tropics mask (different emisisons factor)
     # just select one slice to make it 2d template
-    print(ds)
-    ds = load.tropics(ds, template_var='sinks')
-
+    is_tropics = load.tropics(ds, template_var='sinks', chunks_dict={'y': 4000, 'x': 4000})
     min_lat = ds.y.min().values
     max_lat = ds.y.max().values
     min_lon = ds.x.min().values
@@ -82,35 +81,33 @@ def fire_emissions_factor_conversion(ds):
 
     igbp = utils.open_global_igbp_data(lat_lon_box=lat_lon_box)
     savanna_mask = igbp.igbp.isin([8, 9]).astype('int')
-    for year in [2019, 2020]:
-        new_savanna_mask = savanna_mask.sel(year=2018).assign_coords({'year': year})
-        savanna_mask = xr.concat([savanna_mask, new_savanna_mask], dim='year')
+
+    new_years = xr.DataArray(list(range(2015, 2021)), dims='year')
+    with dask.config.set(**{'array.slicing.split_large_chunks': False}):
+        savanna_mask = savanna_mask.reindex(year=new_years).ffill('year')
+
     savanna_mask = savanna_mask.to_dataset()
-    print(ds)
-    ds['is_savanna'] = utils.find_matching_records(
+    is_savanna = utils.find_matching_records(
         data=savanna_mask, lats=ds.y, lons=ds.x, years=ds.year
     )['igbp']
+    is_savanna = is_savanna.chunk({'year': 1, 'y': 4000, 'x': 4000})
 
-    ds['savanna_fire'] = ds['emissions_from_fire'].where(ds['is_savanna'] == 1)
+    savanna_fire = ds['emissions_from_fire'].where(is_savanna == 1)
     # subtract out savanna fires
-    ds['emissions_from_fire'] = ds['emissions_from_fire'] - ds['savanna_fire']
+    ds['emissions_from_fire'] = ds['emissions_from_fire'] - savanna_fire
 
-    ds['tropical_forest_fire'] = ds['emissions_from_fire'].where(
-        (ds['is_tropics'] == 1) & (ds['is_savanna'] == 0)
+    tropical_forest_fire = ds['emissions_from_fire'].where(
+        (is_tropics == 1) & (is_savanna == 0)  # ?? check the is_savanna ==0 part (why necessary)
     )
 
     # subtract out tropical forest fires
-    ds['extratropical_forest_fire'] = ds['emissions_from_fire'] - ds['tropical_forest_fire']
+    extratropical_forest_fire = ds['emissions_from_fire'] - tropical_forest_fire
 
-    for (fire_type, emissions_factor) in EMISSIONS_FACTORS.items():
-        ds[fire_type] = ds[fire_type] * emissions_factor
-    ds['emissions_from_fire'] = (
-        ds['tropical_forest_fire'] + ds['extratropical_forest_fire'] + ds['savanna_fire']
-    )
-    del ds['tropical_forest_fire']
-    del ds['extratropical_forest_fire']
-    del ds['savanna_fire']
-    print('deleted the fires!')
+    extratropical_forest_fire *= EMISSIONS_FACTORS['extratropical_forest_fire']
+    tropical_forest_fire *= EMISSIONS_FACTORS['tropical_forest_fire']
+    savanna_fire *= EMISSIONS_FACTORS['savanna_fire']
+
+    ds['emissions_from_fire'] = tropical_forest_fire + extratropical_forest_fire + savanna_fire
     return ds
 
 
@@ -131,12 +128,13 @@ def process_one_tile(tile_id):
     print(tile_id)
     return_status = 'skipped'
 
-    # mappers
-    tot_mapper = fsspec.get_mapper(tile_template.format(tile_id=tile_id, kind='tot'))
+    # mapper
     split_mapper = fsspec.get_mapper(tile_template.format(tile_id=tile_id, kind='split'))
-
+    # this will be a more rigorous check than just for the metadata- will also check for a chunk being written
+    checks = [f'{v}/0.0.0' for v in split_encoding.keys()]
+    checks.append('.zmetadata')
     # calc emissions
-    if not (skip_existing and zarr_is_complete(tot_mapper) and zarr_is_complete(split_mapper)):
+    if not (skip_existing and zarr_is_complete(split_mapper)):
 
         # read data
         fire_da = open_fire_mask(tile_id).fillna(0)
@@ -158,8 +156,14 @@ def process_one_tile(tile_id):
         # are marked as emissions from fire. this is consistent with the methods in Harris et al 2021.
         # note that we are limited by the start of the dataset and will miss the fires from years[0] - 1
         fire_attribution = (fire_da + fire_da.shift(year=1, fill_value=0)).astype(bool)
-        # reassign coords to ensure they match
-        fire_attribution = fire_attribution.reindex(lat=list(reversed(fire_attribution.lat)))
+        # # # corrects for tiny offsets in the coordinate values
+        fire_attribution['lat'] = fire_attribution.lat.round(6)
+        fire_attribution['lon'] = fire_attribution.lon.round(6)
+        with dask.config.set(**{'array.slicing.split_large_chunks': True}):
+            # switch lats so they go from lower to higher and then chunk
+            fire_attribution = fire_attribution.reindex(lat=list(reversed(fire_attribution.lat)))
+        fire_attribution = fire_attribution.chunk({'year': 1, 'lat': 4000, 'lon': 4000})
+        # create inverse fire mask
         # create inverse fire mask
         clearing_attribution = (1 - fire_attribution.astype(int)).astype(bool)
         sources['lat'] = fire_attribution.lat
@@ -179,17 +183,15 @@ def process_one_tile(tile_id):
         ).where(clearing_attribution, other=0)
         out['sinks'] = sinks['AGB'] + sinks['BGB'] + sinks['dead_wood'] + sinks['litter']
         out = out.rename({'lat': 'y', 'lon': 'x'})
-        out = convert_to_emissions(out).compute()
-        del out['is_tropics']
-        del out['is_savanna']
+        out = convert_to_emissions(out)
         out.attrs.update(get_cf_global_attrs())
-        out = out.chunk({'year': -1, 'x': 4000, 'y': 4000})
-        # TODO: add metadata to emissions variable
+        out = out.rename({'x': 'lon', 'y': 'lat'})
+        out = out.chunk(chunks)
         out.to_zarr(split_mapper, encoding=split_encoding, mode="w", consolidated=True)
 
         return_status = 'emissions-done'
 
-    return return_status
+    return (return_status,)
 
 
 def combine_all_tiles():
