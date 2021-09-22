@@ -242,9 +242,9 @@ def run_change_point_detection_for_subtile(parameters_dict):
     fs = fsspec.get_filesystem_class('s3')(key=access_key_id, secret=secret_access_key)
     data_mapper = fs.get_mapper(data_path)
 
-    print(f'reading data {datetime.now()}')
     with rio.Env(aws_session):
         with dask.config.set(scheduler='single-threaded'):
+            print(f'reading data {datetime.now()}')
             ds = xr.open_zarr(data_mapper).sel(
                 lat=slice(subtile_ll_lat, subtile_ll_lat + tile_degree_size),
                 lon=slice(subtile_ll_lon, subtile_ll_lon + tile_degree_size),
@@ -252,7 +252,6 @@ def run_change_point_detection_for_subtile(parameters_dict):
 
             if ds.AGB_raw.notnull().sum().values == 0:
                 postprocess.write_to_log('empty scene', log_path, access_key_id, secret_access_key)
-
             else:
                 region = {
                     "lat": slice(lat_increment * 4000, (lat_increment + tile_degree_size) * 4000),
@@ -285,7 +284,7 @@ def run_change_point_detection_for_subtile(parameters_dict):
                 ds = postprocess.prep_ds_for_writing(
                     ds, coords_dict=time_coords, chuck_dict=template_chunk_dict
                 )
-                # writing raw data
+                # writing change point detection data
                 task = ds[['AGB', 'pvalue', 'breakpoint']].to_zarr(
                     data_mapper,
                     mode='a',
@@ -293,5 +292,21 @@ def run_change_point_detection_for_subtile(parameters_dict):
                     compute=False,
                 )
                 task.compute(retries=10)
+
+                # calculate carbon pools
+                print(f'calculating carbon pools {datetime.now()}')
+                ds = ds[['AGB']].rename({'lon': 'x', 'lat': 'y'})
+                ds = postprocess.calc_carbon_pools(ds)
+                ds = postprocess.prep_ds_for_writing(
+                    ds, coords_dict=time_coords, chuck_dict=template_chunk_dict
+                )
+                # writing other carbon pools
+                task = ds[['BGB', 'dead_wood', 'litter']].to_zarr(
+                    data_mapper,
+                    mode='a',
+                    region=region,
+                    compute=False,
+                )
+                task.compute(retries=10)
                 print(f'done {datetime.now()}')
-        postprocess.write_to_log('done', log_path, access_key_id, secret_access_key)
+                postprocess.write_to_log('done', log_path, access_key_id, secret_access_key)
