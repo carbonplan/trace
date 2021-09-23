@@ -189,12 +189,15 @@ def process_one_tile(tile_id):
         emissions_from_clearing = emissions_from_clearing.rename({'lat': 'y', 'lon': 'x'})
         sinks = sinks.rename({'lat': 'y', 'lon': 'x'})
         out = convert_to_emissions(out, emissions_from_clearing, sinks)
-        out.attrs.update(get_cf_global_attrs())
         out = out.rename({'x': 'lon', 'y': 'lat'})
         out = out.chunk(chunks)
+        out.attrs.update(get_cf_global_attrs())
+
         out.to_zarr(split_mapper, encoding=split_encoding, mode="w", consolidated=True)
 
         return_status = 'emissions-done'
+    else:
+        return_status = 'skipped'
 
     return (return_status,)
 
@@ -224,6 +227,8 @@ def coarsen_tile(tile_id):
             coarse_out = coarse_out.chunk(coarse_chunks)
             coarse_out.to_zarr(out_mapper, encoding=encoding, mode="w", consolidated=True)
             return_status = 'coarsen-done'
+        else:
+            return_status = 'skipped'
     return return_status
 
 
