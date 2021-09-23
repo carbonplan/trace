@@ -13,14 +13,15 @@ from dask.distributed import Client
 from carbonplan_trace.metadata import get_cf_global_attrs
 from carbonplan_trace.tiles import tiles
 from carbonplan_trace.utils import zarr_is_complete
+from carbonplan_trace.v0.core import coarsen_emissions
 from carbonplan_trace.v1 import load, utils
 
-from ..constants import EMISSIONS_FACTORS, TC02_PER_TC, TC_PER_TBM
+from ..constants import EMISSIONS_FACTORS, TC02_PER_TC, TC_PER_TBM_IPCC
 
 skip_existing = True
 tile_template = "s3://carbonplan-climatetrace/v1.2/results/tiles/30m/{tile_id}_{kind}.zarr"
-coarse_tile_template = "s3://carbonplan-climatetrace/v1.2/tiles/3000m/{tile_id}_{kind}.zarr"
-coarse_full_template = "s3://carbonplan-climatetrace/v1.2/global/3000m/raster_{kind}.zarr"
+coarse_tile_template = "s3://carbonplan-climatetrace/v1.2/results/tiles/3000m/{tile_id}_{kind}.zarr"
+coarse_full_template = "s3://carbonplan-climatetrace/v1.2/results/global/3000m/raster_{kind}.zarr"
 shapes_file = 's3://carbonplan-climatetrace/inputs/shapes/countries.shp'
 rollup_template = 's3://carbonplan-climatetrace/v1.2/country_rollups_{var}.csv'
 chunks = {"lat": 4000, "lon": 4000, "year": 2}
@@ -59,18 +60,24 @@ def calc_biomass_change(ds):
     return (ds.shift(year=1) - ds).isel(year=slice(1, None))
 
 
-def convert_to_emissions(ds):
+def convert_to_emissions(ds, emissions_from_clearing, sinks):
     # emissions factor
     ds = fire_emissions_factor_conversion(ds)
-    for variable in ['sinks', 'emissions_from_clearing']:
-        ds[variable] = ds[variable] * TC_PER_TBM * TC02_PER_TC
+    for emissions_ds in [emissions_from_clearing, sinks]:
+        for carbon_pool, biomass_carbon_conversion_factor in TC_PER_TBM_IPCC.items():
+            emissions_ds[carbon_pool] *= biomass_carbon_conversion_factor * TC02_PER_TC
+
+    ds['emissions_from_clearing'] = emissions_from_clearing.to_array(dim='var').sum(dim='var')
+    ds['sinks'] = emissions_from_clearing.to_array(dim='var').sum(dim='var')
     return ds
 
 
 def fire_emissions_factor_conversion(ds):
     # load tropics mask (different emisisons factor)
     # just select one slice to make it 2d template
-    is_tropics = load.tropics(ds, template_var='sinks', chunks_dict={'y': 4000, 'x': 4000})
+    is_tropics = load.tropics(
+        ds, template_var='emissions_from_fire', chunks_dict={'y': 4000, 'x': 4000}
+    )
     min_lat = ds.y.min().values
     max_lat = ds.y.max().values
     min_lon = ds.x.min().values
@@ -90,14 +97,14 @@ def fire_emissions_factor_conversion(ds):
     is_savanna = utils.find_matching_records(
         data=savanna_mask, lats=ds.y, lons=ds.x, years=ds.year
     )['igbp']
-    is_savanna = is_savanna.chunk({'year': 1, 'y': 4000, 'x': 4000})
+    is_savanna = is_savanna.chunk({'year': 1, 'y': 4000, 'x': 4000}).astype(bool)
 
-    savanna_fire = ds['emissions_from_fire'].where(is_savanna == 1)
+    savanna_fire = ds['emissions_from_fire'].where(is_savanna).fillna(0)
     # subtract out savanna fires
     ds['emissions_from_fire'] = ds['emissions_from_fire'] - savanna_fire
 
-    tropical_forest_fire = ds['emissions_from_fire'].where(
-        (is_tropics == 1) & (is_savanna == 0)  # ?? check the is_savanna ==0 part (why necessary)
+    tropical_forest_fire = (
+        ds['emissions_from_fire'].where((is_tropics == 1) & (is_savanna == 0)).fillna(0)
     )
 
     # subtract out tropical forest fires
@@ -125,7 +132,6 @@ def process_one_tile(tile_id):
     url : string
         Url where a processed tile is located
     """
-    print(tile_id)
     return_status = 'skipped'
 
     # mapper
@@ -135,7 +141,7 @@ def process_one_tile(tile_id):
     checks.append('.zmetadata')
     # calc emissions
     if not (skip_existing and zarr_is_complete(split_mapper)):
-
+        print(tile_id)
         # read data
         fire_da = open_fire_mask(tile_id).fillna(0)
         carbon_pools = xr.open_zarr(
@@ -178,12 +184,11 @@ def process_one_tile(tile_id):
         out['emissions_from_fire'] = (sources['AGB'] + sources['BGB']).where(
             fire_attribution, other=0
         )
-        out['emissions_from_clearing'] = (
-            sources['AGB'] + sources['BGB'] + sources['dead_wood'] + sources['litter']
-        ).where(clearing_attribution, other=0)
-        out['sinks'] = sinks['AGB'] + sinks['BGB'] + sinks['dead_wood'] + sinks['litter']
+        emissions_from_clearing = sources.where(clearing_attribution, other=0)
         out = out.rename({'lat': 'y', 'lon': 'x'})
-        out = convert_to_emissions(out)
+        emissions_from_clearing = emissions_from_clearing.rename({'lat': 'y', 'lon': 'x'})
+        sinks = sinks.rename({'lat': 'y', 'lon': 'x'})
+        out = convert_to_emissions(out, emissions_from_clearing, sinks)
         out.attrs.update(get_cf_global_attrs())
         out = out.rename({'x': 'lon', 'y': 'lat'})
         out = out.chunk(chunks)
@@ -194,10 +199,38 @@ def process_one_tile(tile_id):
     return (return_status,)
 
 
-def combine_all_tiles():
+def coarsen_tile(tile_id):
+    split_mapper = fsspec.get_mapper(tile_template.format(tile_id=tile_id, kind='split'))
+    coarse_split_mapper = fsspec.get_mapper(
+        coarse_tile_template.format(tile_id=tile_id, kind='split')
+    )
+    for in_mapper, out_mapper, encoding in [
+        (split_mapper, coarse_split_mapper, split_encoding),
+    ]:
+
+        if not (skip_existing and zarr_is_complete(out_mapper)):
+            ds = utils.open_result_tile(
+                tile_id, variable='emissions', version='v1.2', resolution='30m', apply_masks=True
+            )
+
+            coarse_out = coarsen_emissions(ds, factor=COARSENING_FACTOR, mask_var='sinks').chunk(
+                coarse_chunks
+            )
+            # mask to land and where we had valid landsat data
+            coarse_out = utils.apply_result_masks(tile_id, coarse_out)
+            coarse_out.attrs.update(get_cf_global_attrs())
+
+            out_mapper.clear()
+            coarse_out = coarse_out.chunk(coarse_chunks)
+            coarse_out.to_zarr(out_mapper, encoding=encoding, mode="w", consolidated=True)
+            return_status = 'coarsen-done'
+    return return_status
+
+
+def combine_all_tiles(encoding_kinds=[('split', split_encoding)]):
     print('combining all tiles')
 
-    for kind, encoding in [('tot', tot_encoding), ('split', split_encoding)]:
+    for kind, encoding in encoding_kinds:
 
         mapper = fsspec.get_mapper(coarse_full_template.format(kind=kind))
 
@@ -275,8 +308,9 @@ def main():
             result = process_one_tile(tile)
             if result[0] != 'skipped':
                 client.restart()
-
-        combine_all_tiles()
+        for tile in tiles:
+            coarsen_tile(tile)
+        combine_all_tiles(encoding_kinds=[('split', split_encoding)])
         rollup_shapes()
 
 

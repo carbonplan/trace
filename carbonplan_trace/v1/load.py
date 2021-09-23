@@ -2,6 +2,7 @@ from datetime import datetime, datetime as time
 
 import fsspec
 import geopandas as gpd
+import intake
 import numpy as np
 import pandas as pd
 import regionmask
@@ -206,8 +207,14 @@ def tropics(ds, template_var, chunks_dict=None):
     """
     tropics is either 1 or 0 (not boolean)
     """
-    fp = "s3://carbonplan-climatetrace/inputs/shapes/tropics.shp"
-    tropics = gpd.read_file(fp)
+    tropics = intake.open_geopandasfile(
+        'simplecache::s3://carbonplan-climatetrace/inputs/shapes/tropics.zip',
+        use_fsspec=True,
+        storage_options={
+            'simplecache': {'same_names': True, 'cache_storage': 'tmp/intake_geopandas_2'}
+        },
+    ).read()
+    # tropics = gpd.read_file(fp)
     # mask will be of same shape as `lon_or_obj` so only pass a 2d version
     # here since we only need 2d (since tropics mask is time-invariant)
     output_da = regionmask.mask_geopandas(
