@@ -18,7 +18,7 @@ from carbonplan_trace.v1 import load, utils
 
 from ..constants import EMISSIONS_FACTORS, TC02_PER_TC, TC_PER_TBM_IPCC
 
-skip_existing = True
+skip_existing = False
 tile_template = "s3://carbonplan-climatetrace/v1.2/results/tiles/30m/{tile_id}_{kind}.zarr"
 coarse_tile_template = "s3://carbonplan-climatetrace/v1.2/results/tiles/3000m/{tile_id}_{kind}.zarr"
 coarse_full_template = "s3://carbonplan-climatetrace/v1.2/results/global/3000m/raster_{kind}.zarr"
@@ -66,9 +66,13 @@ def convert_to_emissions(ds, emissions_from_clearing, sinks):
     for emissions_ds in [emissions_from_clearing, sinks]:
         for carbon_pool, biomass_carbon_conversion_factor in TC_PER_TBM_IPCC.items():
             emissions_ds[carbon_pool] *= biomass_carbon_conversion_factor * TC02_PER_TC
-
-    ds['emissions_from_clearing'] = emissions_from_clearing.to_array(dim='var').sum(dim='var')
-    ds['sinks'] = emissions_from_clearing.to_array(dim='var').sum(dim='var')
+    ds['emissions_from_clearing'] = (
+        emissions_from_clearing['AGB']
+        + emissions_from_clearing['BGB']
+        + emissions_from_clearing['dead_wood']
+        + emissions_from_clearing['litter']
+    )
+    ds['sinks'] = sinks['AGB'] + sinks['BGB'] + sinks['dead_wood'] + sinks['litter']
     return ds
 
 
@@ -82,7 +86,6 @@ def fire_emissions_factor_conversion(ds):
     max_lat = ds.y.max().values
     min_lon = ds.x.min().values
     max_lon = ds.x.max().values
-
     lat_lon_box = min_lat, max_lat, min_lon, max_lon
     # load forest type mask
 
@@ -92,24 +95,21 @@ def fire_emissions_factor_conversion(ds):
     new_years = xr.DataArray(list(range(2015, 2021)), dims='year')
     with dask.config.set(**{'array.slicing.split_large_chunks': False}):
         savanna_mask = savanna_mask.reindex(year=new_years).ffill('year')
-
     savanna_mask = savanna_mask.to_dataset()
     is_savanna = utils.find_matching_records(
         data=savanna_mask, lats=ds.y, lons=ds.x, years=ds.year
     )['igbp']
-    is_savanna = is_savanna.chunk({'year': 1, 'y': 4000, 'x': 4000}).astype(bool)
+    is_savanna = is_savanna.chunk({'year': 1, 'y': 4000, 'x': 4000})
 
-    savanna_fire = ds['emissions_from_fire'].where(is_savanna).fillna(0)
+    savanna_fire = ds['emissions_from_fire'].where(is_savanna == 1).fillna(0)
     # subtract out savanna fires
     ds['emissions_from_fire'] = ds['emissions_from_fire'] - savanna_fire
-
     tropical_forest_fire = (
         ds['emissions_from_fire'].where((is_tropics == 1) & (is_savanna == 0)).fillna(0)
     )
 
     # subtract out tropical forest fires
     extratropical_forest_fire = ds['emissions_from_fire'] - tropical_forest_fire
-
     extratropical_forest_fire *= EMISSIONS_FACTORS['extratropical_forest_fire']
     tropical_forest_fire *= EMISSIONS_FACTORS['tropical_forest_fire']
     savanna_fire *= EMISSIONS_FACTORS['savanna_fire']
@@ -178,8 +178,6 @@ def process_one_tile(tile_id):
         # already aligned lat/lon above
         sources, fire_attribution = xr.align(sources, fire_attribution, join='inner')
         sources, clearing_attribution = xr.align(sources, clearing_attribution, join='inner')
-        # # this needs to be changed because sources is a dataset with four data arrays (AGB, BGB, deadwood, litter)
-        # # we can't assign it to be a dataarray in the out dataset
         # # include different carbon pools per Table S5 in Harris et al. (2020)
         out['emissions_from_fire'] = (sources['AGB'] + sources['BGB']).where(
             fire_attribution, other=0
@@ -268,8 +266,7 @@ def rollup_shapes():
     shapes_df['numbers'] = np.arange(len(shapes_df))
 
     for kind, var_names in [
-        ('tot', ['emissions']),
-        ('split', ['emissions_from_clearing', 'emissions_from_fire']),
+        ('split', ['emissions_from_clearing', 'emissions_from_fire', 'sinks']),
     ]:
 
         ds = xr.open_zarr(coarse_full_template.format(kind=kind), consolidated=True)
