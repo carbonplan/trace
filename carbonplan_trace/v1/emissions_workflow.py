@@ -264,41 +264,38 @@ def rollup_shapes():
 
     shapes_df = geopandas.read_file(shapes_file)
     shapes_df['numbers'] = np.arange(len(shapes_df))
+    ds = xr.open_zarr(coarse_full_template.format(kind='split'), consolidated=True)
+    ds['net'] = ds['emissions_from_clearing'] + ds['emissions_from_fire'] + ds['sinks']
+    mask = regionmask.mask_geopandas(shapes_df, ds['lon'], ds['lat'], numbers='numbers')
 
-    for kind, var_names in [
-        ('split', ['emissions_from_clearing', 'emissions_from_fire', 'sinks']),
-    ]:
+    var_names = ['emissions_from_clearing', 'emissions_from_fire', 'sinks', 'net']
 
-        ds = xr.open_zarr(coarse_full_template.format(kind=kind), consolidated=True)
+    for var in var_names:
 
-        mask = regionmask.mask_geopandas(shapes_df, ds['lon'], ds['lat'], numbers='numbers')
+        # this will trigger dask compute
+        df = ds[var].groupby(mask).sum().to_pandas()
 
-        for var in var_names:
+        # cleanup dataframe
+        names = shapes_df['alpha3']
+        columns = {k: names[int(k)] for k in df.columns}
+        df = df.rename(columns=columns)
 
-            # this will trigger dask compute
-            df = ds[var].groupby(mask).sum().to_pandas()
+        # package in climate trace format
+        df_out = df.stack().reset_index()
+        df_out = df_out.sort_values(by=['region', 'year']).reset_index(drop=True)
 
-            # cleanup dataframe
-            names = shapes_df['alpha3']
-            columns = {k: names[int(k)] for k in df.columns}
-            df = df.rename(columns=columns)
+        df_out['begin_date'] = pd.to_datetime(df_out.year, format='%Y')
+        df_out['end_date'] = pd.to_datetime(df_out.year + 1, format='%Y')
 
-            # package in climate trace format
-            df_out = df.stack().reset_index()
-            df_out = df_out.sort_values(by=['region', 'year']).reset_index(drop=True)
+        df_out = df_out.drop(columns=['year']).rename(
+            columns={0: 'tCO2eq', 'region': 'iso3_country'}
+        )
+        df_out = df_out[['iso3_country', 'begin_date', 'end_date', 'tCO2eq']]
 
-            df_out['begin_date'] = pd.to_datetime(df_out.year, format='%Y')
-            df_out['end_date'] = pd.to_datetime(df_out.year + 1, format='%Y')
-
-            df_out = df_out.drop(columns=['year']).rename(
-                columns={0: 'tCO2eq', 'region': 'iso3_country'}
-            )
-            df_out = df_out[['iso3_country', 'begin_date', 'end_date', 'tCO2eq']]
-
-            # write out
-            uri = rollup_template.format(var=var)
-            df_out.to_csv(uri, index=False)
-            print(f'writing data to {uri}')
+        # write out
+        uri = rollup_template.format(var=var)
+        df_out.to_csv(uri, index=False)
+        print(f'writing data to {uri}')
 
 
 def main():
