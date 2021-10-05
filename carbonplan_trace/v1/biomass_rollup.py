@@ -12,11 +12,13 @@ from carbonplan_trace.v0.core import coarsen_emissions
 from carbonplan_trace.v0.data import cat
 from carbonplan_trace.v0.data.load import _preprocess
 from carbonplan_trace.v1 import utils
+from s3fs import S3FileSystem
 
 
 def open_biomass_tile(tile_id, version, y0=2014, y1=2021):
     input_tile_fn = f"s3://carbonplan-climatetrace/{version}/results/tiles/{tile_id}.zarr"
     ds = xr.open_zarr(input_tile_fn)
+    ds['land_area'] = xr.ones_like(ds.AGB)
 
     # use igbp land cover as a land mask
     lat, lon = utils.get_lat_lon_tags_from_tile_path(tile_id)
@@ -27,9 +29,9 @@ def open_biomass_tile(tile_id, version, y0=2014, y1=2021):
     ds = ds.where(land_mask)
 
     # use landsat mask
-    landsat_shape = geopandas.read_file(
-        f's3://carbonplan-climatetrace/{version}/masks/valid_landsat.shp'
-    )
+    fs = S3FileSystem()
+    with fs.open(f's3://carbonplan-climatetrace/{version}/masks/valid_landsat.shp.zip') as f:
+        landsat_shape = geopandas.read_file(f)
     landsat_shape['valid_landsat'] = 1
     example = ds.isel(time=0)[['AGB']].drop('time')
     landsat_mask = regionmask.mask_geopandas(
@@ -105,18 +107,20 @@ def coarsen_biomass_one_tile(
     # coarsen tile
     checks = [f'{v}/0.0.0' for v in variables]
     if not (skip_existing and zarr_is_complete(coarse_mapper, check=checks)):
-        print('getting biomass')
         ds = get_biomass_ds_func(tile_id=tile_id, version=version)
-        print('coarsen')
         coarse_out = coarsen_emissions(
             ds[variables], factor=coarsening_factor, mask_var=variables[0], method='mean'
         ).chunk(coarse_chunks)
+        coarse_area = coarsen_emissions(
+            ds[['land_area']], factor=coarsening_factor, mask_var='land_area', method='sum'
+        ).chunk(coarse_chunks)
+        coarse_out['land_area'] = coarse_area['land_area']
         coarse_out.attrs.update(get_cf_global_attrs())
 
         coarse_mapper.clear()
         encoding = {"compressor": numcodecs.Blosc()}
         print('writing')
-        for i, var in enumerate(variables):
+        for i, var in enumerate(variables + ['land_area']):
             if i == 0:
                 coarse_out[[var]].to_zarr(
                     coarse_mapper,
