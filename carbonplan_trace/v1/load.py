@@ -69,6 +69,48 @@ def aster(ds, tiles, lat_lon_box=None, dtype='int16', chunks_dict=None):
         return ds
 
 
+def average_worldclim_data():
+    mapper = fsspec.get_mapper('gs://carbonplan-data/raw/worldclim/30s/raster.zarr')
+    worldclim = xr.open_zarr(mapper, consolidated=True).rename({"x": "lon", "y": "lat"})
+    static_vars = [f"BIO{str(n).zfill(2)}" for n in range(1, 20)]
+    output = worldclim[static_vars]
+
+    # group monthly worldclim data into seasons DJF MAM JJA SON
+    days_in_month = {
+        1: 31,
+        2: 28.25,
+        3: 31,
+        4: 30,
+        5: 31,
+        6: 30,
+        7: 31,
+        8: 31,
+        9: 30,
+        10: 31,
+        11: 30,
+        12: 31,
+    }
+
+    monthly_variables = ['prec', 'srad', 'tavg', 'tmax', 'tmin', 'vapr', 'wind']
+
+    months = np.arange(1, 13)
+    weights = xr.DataArray(
+        [days_in_month[m] for m in months], dims=['month'], coords={'month': months}
+    )
+
+    avg = worldclim[monthly_variables].weighted(weights).mean(dim='month')
+
+    for v in avg:
+        output[v] = avg[v]
+
+    path = 's3://carbonplan-climatetrace/v1/data/intermediates/annual_averaged_worldclim.zarr'
+    utils.save_to_zarr(
+        ds=output,
+        url=path,
+        mode="w",
+    )
+
+
 def worldclim(ds, dtype='int16', chunks_dict=None):
     mapper = fs.get_mapper(
         's3://carbonplan-climatetrace/v1/data/intermediates/annual_averaged_worldclim.zarr'

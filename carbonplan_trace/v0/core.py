@@ -74,6 +74,7 @@ def coarsen_emissions(ds, mask_var='emissions', factor=100, method='sum'):
         da_mask = da_mask.isel(year=0, drop=True)
 
     da_area = compute_grid_area(da_mask)
+    da_area = da_area.where(da_mask.notnull())
     if method == 'sum':
         return (ds * da_area).coarsen(lat=factor, lon=factor).sum()
     elif method == 'mean':
