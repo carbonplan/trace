@@ -6,10 +6,13 @@ import boto3
 import fsspec
 import geopandas as gpd
 import numpy as np
+import regionmask
 import utm
 import xarray as xr
 from pyproj import Transformer
 from s3fs import S3FileSystem
+
+fs = S3FileSystem(requester_pays=True)
 
 
 def save_to_zarr(ds, url, list_of_variables=None, mode='w', append_dim=None):
@@ -493,3 +496,45 @@ def grab_all_scenes_in_tile(ul_lat, ul_lon, tile_degree_size=10):
     scenes_in_tile = gdf.cx[ul_lon : ul_lon + tile_degree_size, ul_lat - tile_degree_size : ul_lat]
 
     return scenes_in_tile[['PATH', 'ROW']].values
+
+
+def apply_result_masks(tile_id, ds, version='v1.2', variable='emissions'):
+    # use igbp land cover as a land mask
+    lat, lon = get_lat_lon_tags_from_tile_path(tile_id)
+    bounding_box = parse_bounding_box_from_lat_lon_tags(lat, lon)
+    igbp = open_global_igbp_data(lat_lon_box=bounding_box)
+    land_mask = (igbp.igbp > 0).any(dim='year')
+    land_mask = find_matching_records(data=land_mask, lats=ds.lat, lons=ds.lon)
+    ds = ds.where(land_mask)
+
+    # use landsat mask
+    with fs.open(f's3://carbonplan-climatetrace/{version}/masks/valid_landsat.shp.zip') as f:
+        landsat_shape = gpd.read_file(f)
+
+    landsat_shape['valid_landsat'] = 1
+    if variable == 'biomass':
+        example = ds.isel(time=0)[['AGB']].drop('time')
+    elif variable == 'emissions':
+        example = ds.isel(year=0)[['sinks']].drop('year')
+    landsat_mask = regionmask.mask_geopandas(
+        landsat_shape, numbers="valid_landsat", lon_or_obj=example.lon, lat=example.lat
+    )
+    ds = ds.where(landsat_mask == 1)
+    return ds
+
+
+def open_result_tile(
+    tile_id, variable='emissions', version='v1.2', resolution='30m', apply_masks=False
+):
+    if variable == 'biomass':
+        input_tile_fn = f"s3://carbonplan-climatetrace/{version}/results/tiles/{tile_id}.zarr"
+    elif variable == 'emissions':
+        if resolution == '30m':
+            input_tile_fn = f's3://carbonplan-climatetrace/{version}/results/tiles/{resolution}/{tile_id}_split.zarr/'
+        elif resolution == '3000m':
+            input_tile_fn = f's3://carbonplan-climatetrace/{version}/results/tiles/{resolution}/{tile_id}_split.zarr/'
+    ds = xr.open_zarr(input_tile_fn)
+    if apply_masks:
+        ds = apply_result_masks(tile_id, ds, version=version, variable=variable)
+
+    return ds
