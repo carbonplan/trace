@@ -4,6 +4,7 @@ import geopandas
 import numcodecs
 import regionmask
 import xarray as xr
+from s3fs import S3FileSystem
 
 from carbonplan_trace.metadata import get_cf_global_attrs
 from carbonplan_trace.tiles import tiles
@@ -12,7 +13,6 @@ from carbonplan_trace.v0.core import coarsen_emissions
 from carbonplan_trace.v0.data import cat
 from carbonplan_trace.v0.data.load import _preprocess
 from carbonplan_trace.v1 import utils
-from s3fs import S3FileSystem
 
 
 def open_biomass_tile(tile_id, version, y0=2014, y1=2021):

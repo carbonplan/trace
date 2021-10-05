@@ -88,23 +88,21 @@ def average_worldclim_data():
         9: 30,
         10: 31,
         11: 30,
-        12: 31
+        12: 31,
     }
 
     monthly_variables = ['prec', 'srad', 'tavg', 'tmax', 'tmin', 'vapr', 'wind']
 
     months = np.arange(1, 13)
     weights = xr.DataArray(
-        [days_in_month[m] for m in months],
-        dims=['month'],
-        coords={'month': months}
+        [days_in_month[m] for m in months], dims=['month'], coords={'month': months}
     )
 
     avg = worldclim[monthly_variables].weighted(weights).mean(dim='month')
 
     for v in avg:
         output[v] = avg[v]
-        
+
     path = 's3://carbonplan-climatetrace/v1/data/intermediates/annual_averaged_worldclim.zarr'
     utils.save_to_zarr(
         ds=output,
