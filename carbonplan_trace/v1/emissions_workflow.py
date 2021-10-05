@@ -26,7 +26,6 @@ shapes_file = 's3://carbonplan-climatetrace/inputs/shapes/countries.shp'
 rollup_template = 's3://carbonplan-climatetrace/v1.2/country_rollups_{var}.csv'
 chunks = {"lat": 4000, "lon": 4000, "year": 2}
 coarse_chunks = {"lat": 400, "lon": 400, "year": -1}
-years = (2001, 2020)
 COARSENING_FACTOR = 100
 tot_encoding = {"flux": {"compressor": numcodecs.Blosc()}}
 split_encoding = {
@@ -82,11 +81,11 @@ def fire_emissions_factor_conversion(ds):
     is_tropics = load.tropics(
         ds, template_var='emissions_from_fire', chunks_dict={'y': 4000, 'x': 4000}
     )
-    min_lat = ds.y.min().values
-    max_lat = ds.y.max().values
-    min_lon = ds.x.min().values
-    max_lon = ds.x.max().values
-    lat_lon_box = min_lat, max_lat, min_lon, max_lon
+    min_lat = ds.y.min().item()
+    max_lat = ds.y.max().item()
+    min_lon = ds.x.min().item()
+    max_lon = ds.x.max().item()
+    lat_lon_box = [min_lat, max_lat, min_lon, max_lon]
     # load forest type mask
 
     igbp = utils.open_global_igbp_data(lat_lon_box=lat_lon_box)
@@ -230,7 +229,7 @@ def coarsen_tile(tile_id):
     return return_status
 
 
-def combine_all_tiles(encoding_kinds=[('split', split_encoding)]):
+def combine_all_tiles(encoding_kinds=None):
     print('combining all tiles')
 
     for kind, encoding in encoding_kinds:

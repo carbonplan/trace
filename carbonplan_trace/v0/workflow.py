@@ -129,7 +129,9 @@ def process_one_tile(tile_id):
     return (return_status,)
 
 
-def combine_all_tiles(encoding_kinds=[('tot', tot_encoding), ('split', split_encoding)]):
+def combine_all_tiles(encoding_kinds=None):
+    if encoding_kinds is None:
+        encoding_kinds = [('tot', tot_encoding), ('split', split_encoding)]
     print('combining all tiles')
     for kind, encoding in encoding_kinds:
 
