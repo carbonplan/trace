@@ -74,10 +74,3 @@ jobs:
           cache-from: type=registry,ref=carbonplan/trace-python-notebook:latest
           build-args: |
             REPO_HASH=${{ env.REPO_HASH }}
-
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2.4.0
-      - uses: actions/setup-python@v2.3.1
-      - uses: pre-commit/action@v2.0.3
