@@ -9,7 +9,7 @@ import carbonplan_trace.v1.glas_height_metrics as ht
 import carbonplan_trace.v1.utils as utils
 
 SPEED_OF_LIGHT = 299792458  # m/s
-SECONDS_IN_NANOSECONDS = 10 ** -9
+SECONDS_IN_NANOSECONDS = 10**-9
 
 
 def calculate_derived_variables(data, tiles):
@@ -114,7 +114,7 @@ def filter_large_leading_and_trailing_edge_extent(ds):
 
 
 def gaussian(x, amplitude, mean, stddev):
-    return amplitude * np.exp(-1 * ((x - mean) ** 2) / (2 * (stddev ** 2)))
+    return amplitude * np.exp(-1 * ((x - mean) ** 2) / (2 * (stddev**2)))
 
 
 def find_gaussian_fit_sigma(wf, default=3):

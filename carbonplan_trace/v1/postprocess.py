@@ -228,7 +228,7 @@ def calculate_belowground_biomass(ds):
     "Critical analysis of root: Shoot ratios in terrestrial biomes"
     """
     print(f'calculating belowground biomass {datetime.now()}')
-    ds['BGB'] = 0.489 * (ds.AGB ** 0.890)
+    ds['BGB'] = 0.489 * (ds.AGB**0.890)
 
     return ds.astype('float32')
 
