@@ -182,11 +182,6 @@ def make_inference(input_data, model):
     gc.collect()
     print(f'predicting on {len(input_data)} records')
     t0 = time.time()
-    # this might not work for xgboost - joblib is something sklearn uses a lot
-    # but not something xgboost uses too much
-    # parallelization at this step was only done with random forest. at that time
-    # dask threading wasn't working and so we tried joblib and it worked
-    # we'll see about xgboost! TBD
     with joblib.parallel_backend('threading', n_jobs=8):
         model.n_jobs = 8
         input_data['biomass'] = model.predict(input_data)

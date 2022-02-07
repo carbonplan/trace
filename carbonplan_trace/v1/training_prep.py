@@ -72,22 +72,25 @@ def prep_training_dataset(
                     landsat_zone = landsat_ds.utm_zone_number + landsat_ds.utm_zone_letter
                     # sets null value to np.nan
                     write_nodata(landsat_ds)
-                    data, tiles, bounding_box = reproject_dataset_to_fourthousandth_grid(
-                        landsat_ds, zone=landsat_zone
-                    )
+                    (
+                        data_list,
+                        tiles_list,
+                        bounding_box_list,
+                    ) = reproject_dataset_to_fourthousandth_grid(landsat_ds, zone=landsat_zone)
                     del landsat_ds
                     # add in other datasets
-                    if len(data) == 1:
-                        data[0] = add_aster_worldclim(
-                            data[0], tiles[0], lat_lon_box=bounding_box[0]
+
+                    dfs = []
+                    for data, tiles, bounding_box in zip(data_list, tiles_list, bounding_box_list):
+                        # add in other datasets
+                        data = add_aster_worldclim(
+                            data, tiles, year, lat_lon_box=bounding_box
                         ).load()
-                    else:
-                        raise Exception('data type not list')
-                    # here we take it to dataframe and add in realm information
-                    df = create_combined_landsat_biomass_df(
-                        data[0], tiles[0], year, bounding_box[0]
-                    )
-                    del data
+                        df = create_combined_landsat_biomass_df(data, tiles, year, bounding_box)
+                        dfs.append(df)
+                        del df
+                        del data
+                    df = pd.concat(dfs)
                 else:
                     df = pd.DataFrame({})
                 print('length of data', len(df))
