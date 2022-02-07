@@ -166,7 +166,7 @@ def convert_to_lat_lon(df, utm_zone_number, utm_zone_letter):
 def add_all_variables(data, tiles, year, lat_lon_box=None):
     data = load.aster(data, tiles, lat_lon_box=lat_lon_box)
     data = load.worldclim(data)
-    data = load.treecover2000(data, tiles)
+    # data = load.treecover2000(data, tiles)
     data = load.ecoregion(data, tiles, lat_lon_box=lat_lon_box)
 
     return data
@@ -182,6 +182,11 @@ def make_inference(input_data, model):
     gc.collect()
     print(f'predicting on {len(input_data)} records')
     t0 = time.time()
+    # this might not work for xgboost - joblib is something sklearn uses a lot
+    # but not something xgboost uses too much
+    # parallelization at this step was only done with random forest. at that time
+    # dask threading wasn't working and so we tried joblib and it worked
+    # we'll see about xgboost! TBD
     with joblib.parallel_backend('threading', n_jobs=8):
         model.n_jobs = 8
         input_data['biomass'] = model.predict(input_data)
@@ -213,7 +218,6 @@ def predict(
         # create the landsat scene for that year
         with dask.config.set(scheduler='single-threaded'):
             t0 = time.time()
-            print('averaging')
             landsat_ds = scene_seasonal_average(
                 path,
                 row,
@@ -234,7 +238,6 @@ def predict(
                 landsat_zone = landsat_ds.utm_zone_number + landsat_ds.utm_zone_letter
                 # sets null value to np.nan
                 write_nodata(landsat_ds)
-                print('reprojecting')
 
                 data_list, tiles_list, bounding_box_list = reproject_dataset_to_fourthousandth_grid(
                     landsat_ds.astype('float32'), zone=landsat_zone
@@ -261,6 +264,7 @@ def predict(
             if input_write_bucket is not None:
                 utils.write_parquet(df, input_write_bucket, access_key_id, secret_access_key)
             rf_result = []
+            xg_result = []
             for realm, sub in df.groupby('realm'):
                 rf = m.random_forest_model(
                     realm=realm,
@@ -272,15 +276,30 @@ def predict(
                 )
                 rf_result.append(make_inference(sub, rf))
 
+                xg = m.xgb_model(
+                    realm=realm,
+                    df_train=None,
+                    df_test=None,
+                    output_folder=model_folder,
+                    validation_year='none',
+                    overwrite=False,
+                )
+                xg_result.append(make_inference(sub, xg))
+
             rf_result = pd.concat(rf_result)
+            xg_result = pd.concat(xg_result)
+
             del df
         else:
             rf_result = pd.DataFrame([[np.nan, np.nan, np.nan]], columns=['x', 'y', 'biomass'])
+            xg_result = pd.DataFrame([[np.nan, np.nan, np.nan]], columns=['x', 'y', 'biomass'])
 
         if output_write_bucket is not None:
             # random forest
             output_filepath = f'{output_write_bucket}/rf/{year}/{path:03d}{row:03d}.parquet'
             utils.write_parquet(rf_result, output_filepath, access_key_id, secret_access_key)
+            output_filepath = f'{output_write_bucket}/xg/{year}/{path:03d}{row:03d}.parquet'
+            utils.write_parquet(xg_result, output_filepath, access_key_id, secret_access_key)
             return ('pass', output_filepath)
         else:
             return rf_result
