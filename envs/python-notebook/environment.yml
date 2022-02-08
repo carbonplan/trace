@@ -43,7 +43,7 @@ dependencies:
   - pykdtree
   - pygeos
   - pygraphviz
-  - pyproj
+  - pyproj=3.0.1
   - pytest
   - python-graphviz
   - python-wget

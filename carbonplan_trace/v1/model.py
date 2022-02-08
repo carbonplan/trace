@@ -16,7 +16,7 @@ fs = S3FileSystem()
 features = (
     ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7', 'NDVI', 'NDII', 'NIR_V']
     + [f'BIO{str(n).zfill(2)}' for n in range(1, 20)]
-    + ['treecover2000_mean']
+    # + ['treecover2000_mean']
     + ['prec', 'srad', 'tavg', 'tmax', 'tmin', 'vapr', 'wind']
     + ['elev', 'slope', 'aspect']
 )

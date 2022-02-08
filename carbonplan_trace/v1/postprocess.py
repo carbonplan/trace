@@ -28,10 +28,10 @@ def _set_thread_settings():
 dask.config.set({"array.slicing.split_large_chunks": False})
 
 
-def compile_df_for_tile(ul_lat, ul_lon, year, tile_degree_size=2):
+def compile_df_for_tile(ul_lat, ul_lon, year, model_type, tile_degree_size=2):
     scene_ids = utils.grab_all_scenes_in_tile(ul_lat, ul_lon, tile_degree_size=tile_degree_size)
     list_of_parquet_paths = [
-        f's3://carbonplan-climatetrace/v1/inference/rf/{year}/{path:03d}{row:03d}.parquet'
+        f's3://carbonplan-climatetrace/v2/inference/{model_type}/{year}/{path:03d}{row:03d}.parquet'
         for [path, row] in scene_ids
     ]
 
@@ -98,9 +98,9 @@ def trim_ds(ul_lat, ul_lon, tile_degree_size, ds):
     return ds
 
 
-def merge_all_scenes_in_tile(ul_lat, ul_lon, year, tile_degree_size=2):
+def merge_all_scenes_in_tile(ul_lat, ul_lon, year, model_type, tile_degree_size=2):
     print(f'compiling {datetime.now()}')
-    df = compile_df_for_tile(ul_lat, ul_lon, year)
+    df = compile_df_for_tile(ul_lat, ul_lon, year, model_type)
     print(f'gridding {datetime.now()}')
     ds = turn_point_cloud_to_grid(df, ul_lat, ul_lon, tile_degree_size)
     del df
@@ -109,12 +109,14 @@ def merge_all_scenes_in_tile(ul_lat, ul_lon, year, tile_degree_size=2):
     return ds
 
 
-def biomass_tile_timeseries(ul_lat, ul_lon, year0, year1, tile_degree_size=2):
+def biomass_tile_timeseries(ul_lat, ul_lon, year0, year1, model_type, tile_degree_size=2):
     ds_list = []
-    for year in np.arange(year0, year1):
+    for year in [2010, 2014]:  # np.arange(year0, year1):
         print(year)
         ds_list.append(
-            merge_all_scenes_in_tile(ul_lat, ul_lon, year, tile_degree_size=tile_degree_size)
+            merge_all_scenes_in_tile(
+                ul_lat, ul_lon, year, model_type, tile_degree_size=tile_degree_size
+            )
         )
     biomass_timeseries = xr.concat(ds_list, dim='time')
 
@@ -122,14 +124,16 @@ def biomass_tile_timeseries(ul_lat, ul_lon, year0, year1, tile_degree_size=2):
 
     biomass_timeseries = biomass_timeseries.assign_coords(
         # {'time': pd.date_range(str(year0), str(year1), freq='A')}
-        {'time': np.arange(year0, year1)}
+        {'time': [2010, 2014]}  # np.arange(year0, year1)}
     )
     return biomass_timeseries
 
 
-def initialize_empty_dataset(ul_lat_tag, ul_lon_tag, year0, year1, write_tile_metadata=True):
-    path = 's3://carbonplan-climatetrace/v1.2/results/tiles/{}_{}.zarr'.format(
-        ul_lat_tag, ul_lon_tag
+def initialize_empty_dataset(
+    ul_lat_tag, ul_lon_tag, year0, year1, model_type, write_tile_metadata=True
+):
+    path = 's3://carbonplan-climatetrace/v2/results/{}/tiles/{}_{}.zarr'.format(
+        model_type, ul_lat_tag, ul_lon_tag
     )
     # if zarr already exists then just return the path and don't touch it since
     # it will delete the existing store if you try to initialize again
@@ -149,11 +153,13 @@ def initialize_empty_dataset(ul_lat_tag, ul_lon_tag, year0, year1, write_tile_me
         # more straightforward
         sample_hansen_tile = sample_hansen_tile.reindex(lat=sample_hansen_tile.lat[::-1])
         ds_list = []
-        for year in np.arange(year0, year1):
+        for year in [2010, 2014]:  # np.arange(year0, year1):
             ds_list.append(sample_hansen_tile)
         timeseries = xr.concat(ds_list, dim='time')
         timeseries = timeseries.assign_coords(
-            {'time': pd.date_range(str(year0), str(year1), freq='A')}
+            {
+                'time': pd.to_datetime(['2010-01-01', '2014-01-01'])
+            }  # pd.date_range(str(year0), str(year1), freq='A')}
         )
         ds = timeseries.to_dataset(name='AGB')
         # variables with time dimension
@@ -228,7 +234,7 @@ def calculate_belowground_biomass(ds):
     "Critical analysis of root: Shoot ratios in terrestrial biomes"
     """
     print(f'calculating belowground biomass {datetime.now()}')
-    ds['BGB'] = 0.489 * (ds.AGB ** 0.890)
+    ds['BGB'] = 0.489 * (ds.AGB**0.890)
 
     return ds.astype('float32')
 
@@ -352,6 +358,7 @@ def postprocess_subtile(parameters_dict):
     data_path = parameters_dict['DATA_PATH']
     access_key_id = parameters_dict['ACCESS_KEY_ID']
     secret_access_key = parameters_dict['SECRET_ACCESS_KEY']
+    model_type = parameters_dict['MODEL_TYPE']
     # chunks_dict = parameters_dict['CHUNKS_DICT']
 
     subtile_ul_lat = min_lat + lat_increment + tile_degree_size
@@ -366,7 +373,7 @@ def postprocess_subtile(parameters_dict):
     _set_thread_settings()
 
     aws_session = AWSSession(core_session, requester_pays=True)
-    log_path = f's3://carbonplan-climatetrace/v1.2/postprocess_log/{min_lat}_{min_lon}_{lat_increment}_{lon_increment}.txt'
+    log_path = f's3://carbonplan-climatetrace/v2/postprocess_log/{model_type}/{min_lat}_{min_lon}_{lat_increment}_{lon_increment}.txt'
     # we initialize the fs here to ensure that the worker has the correct permissions
     # in order to write
     fs = fsspec.get_filesystem_class('s3')(key=access_key_id, secret=secret_access_key)
@@ -374,7 +381,7 @@ def postprocess_subtile(parameters_dict):
 
     # print(f'building time series {datetime.now()}')
     ds = biomass_tile_timeseries(
-        subtile_ul_lat, subtile_ul_lon, year0, year1, tile_degree_size=tile_degree_size
+        subtile_ul_lat, subtile_ul_lon, year0, year1, model_type, tile_degree_size=tile_degree_size
     )
     if ds.biomass.notnull().sum().values == 0:
         write_to_log('empty scene', log_path, access_key_id, secret_access_key)
@@ -385,7 +392,7 @@ def postprocess_subtile(parameters_dict):
                 region = {
                     "lat": slice(lat_increment * 4000, (lat_increment + tile_degree_size) * 4000),
                     'lon': slice(lon_increment * 4000, (lon_increment + tile_degree_size) * 4000),
-                    'time': slice(0, year1 - year0),
+                    'time': slice(0, 2),
                 }
                 ds = ds.rename({'x': 'lon', 'y': 'lat'})
                 ds = prep_ds_for_writing(ds, chuck_dict=template_chunk_dict)

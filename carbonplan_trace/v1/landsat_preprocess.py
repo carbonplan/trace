@@ -178,11 +178,11 @@ def average_stack_of_scenes(ds_list):
     # fill nulls with 0 so that it does not invalidate valid values from other ds
     full_ds = full_ds.fillna(0).load()
     while ds_list:
-        try:
-            ds = ds_list.pop().load()
-        except rio.errors.RasterioIOError:
-            print('skipping raster in average_stack_of_scenes')
-            continue
+        # try:
+        ds = ds_list.pop().load()
+        # except rio.errors.RasterioIOError:
+        #     print('skipping raster in average_stack_of_scenes')
+        #     continue
         mask = valid_pixel_mask(ds).load()
         full_ds = full_ds + ds.fillna(0)
         valid_pixel_count = valid_pixel_count + mask
@@ -415,23 +415,25 @@ def scene_seasonal_average(
     if bands_of_interest == 'all':
         bands_of_interest = ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7']
     scene_stores = fs.ls(landsat_bucket.format(year, path, row))
-
+    scene_stores += fs.ls(landsat_bucket.format(year + 1, path, row))
+    # for australia months will be 12-2005 , 01-2006, 02-2006,
     datestamps = make_datestamps(months, year)
     for scene_store in scene_stores:
-        for datestamp in datestamps:
-            if datestamp in scene_store:
-                valid_files.append(scene_store)
+        if '_T1' in scene_store:
+            for datestamp in datestamps:
+                if datestamp in scene_store.split('_')[-4]:
+                    valid_files.append(scene_store)
     for file in valid_files:
         scene_id = file[-40:]
         url = 's3://{}/{}'.format(file, scene_id)
-        try:
-            utm_zone, utm_letter = get_scene_utm_info(url, test_client)
-            cloud_mask_url = url + '_SR_CLOUD_QA.TIF'
-            cog_mask = cloud_qa(cloud_mask_url)
-            ds_list.append(grab_ds(url, bands_of_interest, cog_mask, utm_zone, utm_letter))
-        except (rio.errors.RasterioIOError, ClientError) as ex:
-            print(f'skipping raster {url}')
-            continue
+        # try:
+        utm_zone, utm_letter = get_scene_utm_info(url, test_client)
+        cloud_mask_url = url + '_SR_CLOUD_QA.TIF'
+        cog_mask = cloud_qa(cloud_mask_url)
+        ds_list.append(grab_ds(url, bands_of_interest, cog_mask, utm_zone, utm_letter))
+        # except (rio.errors.RasterioIOError, ClientError) as ex:
+        #     print(f'skipping raster {url}')
+        #     continue
 
     if len(ds_list) > 0:
         seasonal_average = average_stack_of_scenes(ds_list)

@@ -18,7 +18,7 @@ from s3fs import S3FileSystem
 
 from carbonplan_trace.v1 import load, utils
 from carbonplan_trace.v1.glas_allometric_eq import ECO_TO_REALM_MAP
-from carbonplan_trace.v1.inference import reproject_dataset_to_fourthousandth_grid
+from carbonplan_trace.v1.inference import reproject_dataset_to_fourthousandth_grid, write_nodata
 from carbonplan_trace.v1.landsat_preprocess import scene_seasonal_average
 
 # flake8: noqa
@@ -72,21 +72,33 @@ def prep_training_dataset(
                     landsat_zone = landsat_ds.utm_zone_number + landsat_ds.utm_zone_letter
                     # sets null value to np.nan
                     write_nodata(landsat_ds)
-                    data, tiles, bounding_box = reproject_dataset_to_fourthousandth_grid(
-                        landsat_ds, zone=landsat_zone
-                    )
+                    (
+                        data_list,
+                        tiles_list,
+                        bounding_box_list,
+                    ) = reproject_dataset_to_fourthousandth_grid(landsat_ds, zone=landsat_zone)
                     del landsat_ds
                     # add in other datasets
-                    data = add_aster_worldclim(data, tiles, lat_lon_box=bounding_box).load()
-                    # here we take it to dataframe and add in realm information
-                    df = create_combined_landsat_biomass_df(data, tiles, year, bounding_box)
-                    del data
+
+                    dfs = []
+                    for data, tiles, bounding_box in zip(data_list, tiles_list, bounding_box_list):
+                        # add in other datasets
+                        data = add_aster_worldclim(
+                            data, tiles, year, lat_lon_box=bounding_box
+                        ).load()
+                        df = create_combined_landsat_biomass_df(data, tiles, year, bounding_box)
+                        dfs.append(df)
+                        del df
+                        del data
+                    df = pd.concat(dfs)
                 else:
                     df = pd.DataFrame({})
                 print('length of data', len(df))
 
                 # according to realm, save to the correct bucket
                 if len(df) == 0:
+                    # no_data (this step getting triggered) can be caused either by
+                    # lidar or landsat
                     output_filepath = (
                         f'{training_write_bucket}/no_data/{year}/{path:03d}{row:03d}.parquet'
                     )
@@ -134,7 +146,13 @@ def create_combined_landsat_biomass_df(data, tiles, year, bounding_box):
         The df with the biomass (and potentially other variables) and
         the corresponding landsat data
     '''
-    biomass_variables = ['biomass', 'burned', 'treecover2000_mean', 'ecoregion', 'lat', 'lon']
+    biomass_variables = [
+        'biomass',
+        'burned',
+        'ecoregion',
+        'lat',
+        'lon',
+    ]  # removed 'treecover2000_mean',
     # open all the biomass tiles
     # don't need to do the bounding box trimming because
     # it isn't spatial data (it's df)
@@ -148,7 +166,7 @@ def create_combined_landsat_biomass_df(data, tiles, year, bounding_box):
         & (biomass_df.lon <= max_lon)
     ]
     biomass_df['realm'] = biomass_df.ecoregion.apply(ECO_TO_REALM_MAP.__getitem__)
-    # TODO CHECK THIS LINE!!
+
     df = (
         data.sel(
             x=xr.DataArray(biomass_df['lon'].values, dims='shot'),
@@ -169,7 +187,7 @@ def create_combined_landsat_biomass_df(data, tiles, year, bounding_box):
 
 
 def build_url(df):
-    return "s3://carbonplan-climatetrace/v1/training/{}/{}/{}/data.parquet".format(
+    return "s3://carbonplan-climatetrace/v2/training/{}/{}/{}/data.parquet".format(
         df["PATH"], df["ROW"], df["year"]
     )
 
@@ -184,7 +202,7 @@ def add_parquet_urls(df):
 def find_pertinent_scenes_for_shots(lat_tag, lon_tag, scenes_in_tile_gdf):
 
     file_mapper = fs.get_mapper(
-        "carbonplan-climatetrace/v1/data/intermediates/biomass/{}_{}.zarr".format(lat_tag, lon_tag)
+        "carbonplan-climatetrace/v2/data/intermediates/biomass/{}_{}.zarr".format(lat_tag, lon_tag)
     )
     biomass = xr.open_zarr(file_mapper, consolidated=True).load().drop("spatial_ref")
 
@@ -224,7 +242,7 @@ def aggregate_parquet_files(
             full_df = pd.concat([full_df, df])
     if write:
         tile_parquet_file_path = fs.get_mapper(
-            "carbonplan-climatetrace/v1/training/tiles/data_{}_{}.parquet".format(lat_tag, lon_tag)
+            "carbonplan-climatetrace/v2/training/tiles/data_{}_{}.parquet".format(lat_tag, lon_tag)
         )
         utils.write_parquet(df, tile_parquet_file_path, access_key_id, secret_access_key)
     else:
