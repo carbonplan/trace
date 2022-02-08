@@ -229,13 +229,13 @@ def biomass(tiles, year):
 
 
 def training(realm, y0=2003, y1=2010, reload=False, access_key_id=None, secret_access_key=None):
-    output_filename = f's3://carbonplan-climatetrace/v1/training/{realm}/all_data.parquet'
+    output_filename = f's3://carbonplan-climatetrace/v2/training/{realm}/all_data.parquet'
     if fs.exists(output_filename) and not reload:
         return pd.read_parquet(output_filename)
     else:
         output = []
         for yr in range(y0, y1):
-            folder_name = f's3://carbonplan-climatetrace/v1/training/{realm}/{yr}/'
+            folder_name = f's3://carbonplan-climatetrace/v2/training/{realm}/{yr}/'
             files = fs.ls(folder_name)
             for f in files:
                 output.append(pd.read_parquet(f's3://{f}'))
