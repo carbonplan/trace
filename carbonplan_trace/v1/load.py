@@ -235,10 +235,13 @@ def training(realm, y0=2003, y1=2010, reload=False, access_key_id=None, secret_a
     else:
         output = []
         for yr in range(y0, y1):
+            print(yr)
             folder_name = f's3://carbonplan-climatetrace/v2/training/{realm}/{yr}/'
             files = fs.ls(folder_name)
             for f in files:
-                output.append(pd.read_parquet(f's3://{f}'))
+                single_df = pd.read_parquet(f's3://{f}')
+                single_df['year'] = yr
+                output.append(single_df)
         output = pd.concat(output)
         utils.write_parquet(output, output_filename, access_key_id, secret_access_key)
         return output
