@@ -787,7 +787,7 @@ def acq3_Nelson(ds):
 def plot_shot(record):
     from carbonplan_trace.v1.glas_preprocess import SECONDS_IN_NANOSECONDS, SPEED_OF_LIGHT, gaussian
 
-    # get additional metrics we want to plot 
+    # get additional metrics we want to plot
     distance_metrics = [
         "sig_begin_dist",
         "sig_end_dist",
@@ -855,7 +855,7 @@ def plot_shot(record):
         "y--",
         label="Ground Peak",
     )
-    
+
     plt.plot(
         [-0.05, xmax],
         [record.adj_ground_peak_dist, record.adj_ground_peak_dist],
@@ -870,7 +870,7 @@ def plot_shot(record):
         label="Alternative Ground Peak (Actual)",
     )
 
-    plt.ylim(record.sig_begin_dist-10, record.sig_end_dist+10)
+    plt.ylim(record.sig_begin_dist - 10, record.sig_end_dist + 10)
     plt.gca().invert_yaxis()
     plt.xlabel("lidar return (joules)")
     plt.ylabel("distance from satelite (m)")
