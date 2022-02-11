@@ -787,6 +787,17 @@ def acq3_Nelson(ds):
 def plot_shot(record):
     from carbonplan_trace.v1.glas_preprocess import SECONDS_IN_NANOSECONDS, SPEED_OF_LIGHT, gaussian
 
+    # get additional metrics we want to plot
+    distance_metrics = [
+        "sig_begin_dist",
+        "sig_end_dist",
+        "ground_peak_dist",
+        "adj_ground_peak_dist",
+        "adj_ground_peak_dist_actual_wf",
+    ]
+    for m in distance_metrics:
+        record = get_dist_metric_value(record, m)
+
     bins = record.rec_wf_sample_dist
     plt.figure(figsize=(6, 10))
     plt.scatter(record.rec_wf, bins, s=5, label="Raw")  # raw wf
@@ -836,7 +847,7 @@ def plot_shot(record):
     )
 
     # plot filtered wf
-    plt.plot(record.processed_wf + record.noise_mean, bins, "k-", label="Filtered Waveform")
+    plt.plot(record.processed_wf + record.noise_mean, bins, color="0.9", label="Smoothed Waveform")
 
     plt.plot(
         [-0.05, xmax],
@@ -847,16 +858,24 @@ def plot_shot(record):
 
     plt.plot(
         [-0.05, xmax],
-        [record.adj_ground_peak_dist_actual_wf, record.adj_ground_peak_dist_actual_wf],
-        "c--",
-        label="Ground (Actual)",
+        [record.adj_ground_peak_dist, record.adj_ground_peak_dist],
+        "m--",
+        label="Alternative Ground Peak",
     )
 
-    # plt.ylim(record.sig_end_dist+10, record.sig_begin_dist-10)
+    plt.plot(
+        [-0.05, xmax],
+        [record.adj_ground_peak_dist_actual_wf, record.adj_ground_peak_dist_actual_wf],
+        "m--",
+        label="Alternative Ground Peak (Actual)",
+    )
+
+    plt.ylim(record.sig_begin_dist - 10, record.sig_end_dist + 10)
     plt.gca().invert_yaxis()
     plt.xlabel("lidar return (joules)")
     plt.ylabel("distance from satelite (m)")
     plt.legend()
+    plt.title(f'{record.lat.values}, {record.lon.values}')
     plt.show()
     plt.close()
 
