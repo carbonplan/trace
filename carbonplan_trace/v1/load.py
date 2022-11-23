@@ -1,4 +1,5 @@
-from datetime import datetime, datetime as time
+from datetime import datetime
+from datetime import datetime as time
 
 import fsspec
 import geopandas as gpd
