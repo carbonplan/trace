@@ -18,7 +18,10 @@ from s3fs import S3FileSystem
 
 from carbonplan_trace.v1 import load, utils
 from carbonplan_trace.v1.glas_allometric_eq import ECO_TO_REALM_MAP
-from carbonplan_trace.v1.inference import reproject_dataset_to_fourthousandth_grid, write_nodata
+from carbonplan_trace.v1.inference import (
+    reproject_dataset_to_fourthousandth_grid,
+    write_nodata,
+)
 from carbonplan_trace.v1.landsat_preprocess import scene_seasonal_average
 
 # flake8: noqa

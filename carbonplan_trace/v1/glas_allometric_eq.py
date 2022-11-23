@@ -5,7 +5,10 @@ import xarray as xr
 
 from carbonplan_trace.v0.data import cat
 from carbonplan_trace.v1 import utils
-from carbonplan_trace.v1.glas_height_metrics import HEIGHT_METRICS_MAP, get_all_height_metrics
+from carbonplan_trace.v1.glas_height_metrics import (
+    HEIGHT_METRICS_MAP,
+    get_all_height_metrics,
+)
 from carbonplan_trace.v1.glas_preprocess import get_modeled_waveform
 
 ECOREGIONS_GROUPINGS = {
