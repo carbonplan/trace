@@ -1,5 +1,7 @@
 # V0 Data
 
+The dataset described here represents CO2 emissions globally at the annual timestep through the period 2001-2020 calculated at the 30 m resolution. We also include an aggregation to the 3 km resolution to support follow-on analyses. They are stored in `zarr` format.
+
 The primary datasets used and developed for our V0 dataset are listed in the [this](./catalog.yaml) [Intake catalog](https://intake.readthedocs.io/en/latest/).
 
 If you are using the `carbonplan_trace` Python package, you can access the catalog via:
