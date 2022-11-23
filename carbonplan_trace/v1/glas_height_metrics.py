@@ -358,7 +358,9 @@ def get_percentile_of_sig_beg_and_adj_ground_dist_actual_wf(ds, percentile):
     from ground peak to signal beginning has been reached. Waveform energy accumulation relative to
     ground peak. Ground peak defined as whichever of the two lowest peaks has greater amplitude using actual waveform.
     """
-    from carbonplan_trace.v1.glas_preprocess import select_valid_area  # avoid circular import
+    from carbonplan_trace.v1.glas_preprocess import (
+        select_valid_area,  # avoid circular import
+    )
 
     ds = get_dist_metric_value(ds, metric='adj_ground_peak_dist_actual_wf')
 
@@ -386,7 +388,9 @@ def get_percentile_canopy_dist(ds, percentile):
     the height at which 10% of the waveform energy from 0.5 m above the ground peak
     to signal beginning has been reached
     """
-    from carbonplan_trace.v1.glas_preprocess import select_valid_area  # avoid circular import
+    from carbonplan_trace.v1.glas_preprocess import (
+        select_valid_area,  # avoid circular import
+    )
 
     ds = get_dist_metric_value(ds, metric='bottom_of_canopy_dist')
 
@@ -494,7 +498,9 @@ def get_quadratic_mean_dist(ds):
     square root [∑ (normalized amplitude in a given canopy height bin) × (height of bin)**2]
     Original citation from Lefsky et al 1999. From signal beginning to adj ground peak identified using actual wf.
     """
-    from carbonplan_trace.v1.glas_preprocess import select_valid_area  # avoid circular import
+    from carbonplan_trace.v1.glas_preprocess import (
+        select_valid_area,  # avoid circular import
+    )
 
     ds = get_dist_metric_value(ds, metric='adj_ground_peak_dist_actual_wf')
 
@@ -523,7 +529,9 @@ def get_mean_dist(ds):
     """
     Mean height of the waveform from the signal beginning to adj ground peak identified using actual wf
     """
-    from carbonplan_trace.v1.glas_preprocess import select_valid_area  # avoid circular import
+    from carbonplan_trace.v1.glas_preprocess import (
+        select_valid_area,  # avoid circular import
+    )
 
     ds = get_dist_metric_value(ds, metric='adj_ground_peak_dist_actual_wf')
 
@@ -642,7 +650,9 @@ def proportion_35_to_40m(ds):
     Proportion of the waveform energy from signal beginning to ground peak that is between 35
     and 40 meters in height. Ground peak defined as whichever of the two lowest peaks has greater amplitude using actual wf.
     """
-    from carbonplan_trace.v1.glas_preprocess import select_valid_area  # avoid circular import
+    from carbonplan_trace.v1.glas_preprocess import (
+        select_valid_area,  # avoid circular import
+    )
 
     ds = get_dist_metric_value(ds, metric='adj_ground_peak_dist_actual_wf')
 
@@ -675,7 +685,9 @@ def proportion_sig_beg_to_start_of_ground(ds):
     The total energy from signal beginning to the start of the ground peak,
     normalized by total energy of the waveform. Ground peak assumed to be the last peak.
     """
-    from carbonplan_trace.v1.glas_preprocess import select_valid_area  # avoid circular import
+    from carbonplan_trace.v1.glas_preprocess import (
+        select_valid_area,  # avoid circular import
+    )
 
     ds = get_dist_metric_value(ds, metric='start_of_ground_peak_dist')
 
@@ -704,7 +716,9 @@ def energy_adj_ground_to_sig_end(ds):
     following linear transformation in order to calculate on the same scale as data published by Margolis et al. (2015)
     senergy = -4.397006 + 0.006208 * senergy_whrc
     """
-    from carbonplan_trace.v1.glas_preprocess import select_valid_area  # avoid circular import
+    from carbonplan_trace.v1.glas_preprocess import (
+        select_valid_area,  # avoid circular import
+    )
 
     path = 'gs://carbonplan-climatetrace/inputs/volt_table.csv'
     volt_table = pd.read_csv(path)
@@ -785,7 +799,11 @@ def acq3_Nelson(ds):
 
 
 def plot_shot(record):
-    from carbonplan_trace.v1.glas_preprocess import SECONDS_IN_NANOSECONDS, SPEED_OF_LIGHT, gaussian
+    from carbonplan_trace.v1.glas_preprocess import (
+        SECONDS_IN_NANOSECONDS,
+        SPEED_OF_LIGHT,
+        gaussian,
+    )
 
     # get additional metrics we want to plot
     distance_metrics = [
