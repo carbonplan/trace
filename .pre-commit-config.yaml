@@ -4,7 +4,7 @@ ci:
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.5.0
+    rev: v5.0.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
@@ -15,14 +15,14 @@ repos:
       - id: mixed-line-ending
 
   - repo: https://github.com/asottile/pyupgrade
-    rev: v3.15.0
+    rev: v3.18.0
     hooks:
       - id: pyupgrade
         args:
           - "--py38-plus"
 
   - repo: https://github.com/psf/black
-    rev: 23.12.1
+    rev: 24.10.0
     hooks:
       - id: black
 
@@ -31,8 +31,8 @@ repos:
     hooks:
       - id: blackdoc
 
-  - repo: https://github.com/charliermarsh/ruff-pre-commit
-    rev: "v0.1.11"
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: "v0.6.9"
     hooks:
       - id: ruff
         args: ["--fix"]
@@ -43,7 +43,7 @@ repos:
       - id: prettier
 
   - repo: https://github.com/nbQA-dev/nbQA
-    rev: 1.7.1
+    rev: 1.8.7
     hooks:
       - id: nbqa-ruff
         args: ["--fix"]
